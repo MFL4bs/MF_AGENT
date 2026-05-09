@@ -3,7 +3,6 @@
 Sistema automatizado que:
 - ✅ Califica leads con scoring inteligente
 - ✅ Responde 24/7 usando manuales de empresa (RAG)
-- ✅ Agenda citas en Google Calendar automáticamente
 - ✅ Transfiere a humanos en casos complejos
 
 ## Configuración
