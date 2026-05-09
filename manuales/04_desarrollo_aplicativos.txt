@@ -1,0 +1,62 @@
+# MFLabs — Desarrollo de Aplicativos
+
+## ¿Qué desarrollamos?
+
+### Aplicaciones Web
+- Sistemas de gestión empresarial (ERP) a medida
+- Plataformas de e-commerce personalizadas
+- Portales de clientes y proveedores
+- Dashboards y reportes interactivos
+- Sistemas de reservas y agendamiento en línea
+- Intranets corporativas
+
+### Aplicaciones Móviles
+- Apps para iOS y Android
+- Apps de gestión de campo para vendedores o técnicos
+- Apps de delivery y logística
+- Apps de fidelización y puntos para clientes
+- Apps internas para equipos de trabajo
+
+### Aplicaciones de Escritorio
+- Software de punto de venta (POS)
+- Sistemas de control de inventario
+- Aplicaciones de gestión con interfaz gráfica
+- Herramientas de productividad internas
+
+### Bots e Integraciones
+- Bots de WhatsApp con IA (como MF Agent)
+- Bots de Telegram, Instagram y Facebook
+- Integraciones entre sistemas (APIs)
+- Conexión con Google Calendar, Drive, Sheets
+- Integración con pasarelas de pago
+- Conexión con sistemas de facturación electrónica
+
+### Sistemas con Inteligencia Artificial
+- Chatbots con procesamiento de lenguaje natural
+- Sistemas de recomendación de productos
+- Análisis predictivo de ventas
+- Reconocimiento de imágenes y documentos
+- Asistentes virtuales para empresas
+
+## Tecnologías que usamos
+- **Backend**: Python, FastAPI, Node.js
+- **Frontend**: React, Vue.js, PyQt
+- **Móvil**: React Native, Flutter
+- **IA/ML**: OpenAI, AWS Bedrock, LangChain
+- **Cloud**: AWS, Google Cloud
+- **Bases de datos**: PostgreSQL, DynamoDB, MongoDB
+- **Automatización**: WhatsApp Web.js, Selenium, n8n
+
+## Nuestro proceso de desarrollo
+1. **Descubrimiento**: Entendemos tu negocio y necesidades
+2. **Diseño**: Prototipo visual antes de escribir código
+3. **Desarrollo ágil**: Entregas parciales cada 2 semanas
+4. **Pruebas**: QA exhaustivo antes de lanzar
+5. **Despliegue**: Lanzamiento sin interrupciones
+6. **Mantenimiento**: Soporte y actualizaciones continuas
+
+## Garantías
+- Código fuente entregado al cliente
+- Documentación técnica incluida
+- 3 meses de soporte gratuito post-entrega
+- Garantía de funcionamiento

@@ -1,0 +1,34 @@
+# Credenciales y configuración sensible
+.env
+google_credentials.json
+
+# Datos del perfil (información de clientes y ventas)
+data/
+
+# WhatsApp bridge
+whatsapp_bridge/.wwebjs_auth/
+whatsapp_bridge/node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Logs
+*.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+tmp.txt

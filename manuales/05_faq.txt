@@ -1,0 +1,79 @@
+# MFLabs — Preguntas Frecuentes (FAQ)
+
+## Sobre la empresa
+
+**¿Qué es MFLabs?**
+MFLabs es una empresa de tecnología especializada en automatización de procesos, digitalización empresarial y desarrollo de aplicativos a medida. Ayudamos a negocios a ser más eficientes usando tecnología.
+
+**¿Dónde están ubicados?**
+Trabajamos de forma remota y atendemos clientes en toda Latinoamérica. Nuestro equipo puede reunirse contigo de forma virtual o presencial según tu ubicación.
+
+**¿Cuánto tiempo llevan en el mercado?**
+MFLabs cuenta con un equipo experimentado en desarrollo de software y automatización, con proyectos entregados en múltiples industrias.
+
+---
+
+## Sobre los servicios
+
+**¿Cuánto cuesta un proyecto?**
+Cada proyecto es único. El costo depende del alcance, complejidad y tiempo de desarrollo. Ofrecemos diagnóstico gratuito y cotización sin compromiso. Contáctanos para recibir tu propuesta personalizada.
+
+**¿Cuánto tiempo tarda un proyecto?**
+- Automatizaciones simples (bots, integraciones): 1 a 3 semanas
+- Aplicaciones web o móviles medianas: 1 a 3 meses
+- Sistemas empresariales complejos: 3 a 6 meses
+Los tiempos exactos se definen en la propuesta inicial.
+
+**¿Puedo ver un demo antes de contratar?**
+Sí. Para proyectos de automatización y bots ofrecemos demos en vivo. Para aplicativos, presentamos prototipos visuales antes de iniciar el desarrollo.
+
+**¿Trabajan con empresas pequeñas?**
+Absolutamente. Tenemos soluciones para negocios de todos los tamaños, desde emprendedores hasta empresas medianas. Adaptamos el alcance y presupuesto a tu realidad.
+
+**¿Qué pasa si necesito cambios durante el desarrollo?**
+Trabajamos con metodología ágil, lo que permite ajustes durante el proceso. Cambios menores se absorben; cambios mayores se evalúan y cotizan de forma transparente.
+
+---
+
+## Sobre soporte y mantenimiento
+
+**¿Qué soporte ofrecen después de entregar el proyecto?**
+Incluimos 3 meses de soporte gratuito post-entrega. Después, ofrecemos planes de mantenimiento mensual que incluyen actualizaciones, corrección de errores y mejoras menores.
+
+**¿Qué pasa si el sistema falla?**
+Tenemos tiempos de respuesta garantizados según el plan de soporte. Para clientes con plan activo, atendemos urgencias en menos de 4 horas hábiles.
+
+**¿Me entregan el código fuente?**
+Sí. El código fuente es tuyo. Te lo entregamos junto con documentación técnica al finalizar el proyecto.
+
+**¿Pueden mantener un sistema que no desarrollaron ustedes?**
+Sí, evaluamos el código existente y podemos tomar el mantenimiento o hacer mejoras sobre sistemas desarrollados por terceros.
+
+---
+
+## Sobre automatización y bots
+
+**¿El bot de WhatsApp puede responder cualquier pregunta?**
+El bot responde basándose en la información que le proporcionas (manuales, catálogos, FAQs). Mientras más completa sea la información, mejores serán las respuestas. Para casos complejos, transfiere automáticamente a un humano.
+
+**¿El bot funciona las 24 horas?**
+Sí. Una vez configurado, el bot opera de forma continua sin intervención humana.
+
+**¿Puedo personalizar las respuestas del bot?**
+Sí. Puedes actualizar los manuales y configuración del bot en cualquier momento para ajustar su comportamiento y conocimiento.
+
+**¿El bot puede agendar citas?**
+Sí. Integramos el bot con Google Calendar u otros sistemas de agenda para que los clientes puedan reservar citas automáticamente.
+
+---
+
+## Cómo empezar
+
+**¿Cómo contrato los servicios de MFLabs?**
+1. Contáctanos por WhatsApp o correo
+2. Agendamos una reunión de diagnóstico gratuita
+3. Recibes una propuesta detallada
+4. Firmamos contrato y comenzamos
+
+**¿Tienen contratos largos o puedo cancelar?**
+No manejamos contratos de permanencia forzosa. Los proyectos tienen un contrato por entregable. Los planes de mantenimiento son mensuales y cancelables en cualquier momento.

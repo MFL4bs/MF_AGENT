@@ -1,0 +1,139 @@
+def _generate_pdf(invoice: dict, path: str, business_name: str = None):
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable, Image
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+    from reportlab.pdfgen import canvas as pdf_canvas
+
+    # Clase personalizada para Canvas con marca de agua
+    class WatermarkCanvas(pdf_canvas.Canvas):
+        def __init__(self, *args, **kwargs):
+            pdf_canvas.Canvas.__init__(self, *args, **kwargs)
+            self.pages = []
+
+        def showPage(self):
+            self.pages.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            env = _read_env()
+            watermark_image = env.get("WATERMARK_IMAGE", str(Path(__file__).parent / "MF_LABS.png"))
+            watermark_opacity = float(env.get("WATERMARK_OPACITY", "0.15"))
+            biz = business_name or env.get("BUSINESS_NAME", "Mi Empresa")
+            page_width, page_height = A4
+
+            for page in self.pages:
+                self.__dict__.update(page)
+
+                # ── Imagen de marca de agua ──────────────────────────────────────
+                if Path(watermark_image).exists():
+                    self.saveState()
+                    img_size = 250
+                    x = (page_width - img_size) / 2
+                    y = (page_height - img_size) / 2
+                    self.setFillAlpha(watermark_opacity)
+                    self.drawImage(
+                        watermark_image, x, y,
+                        width=img_size, height=img_size,
+                        mask='auto', preserveAspectRatio=True
+                    )
+                    self.restoreState()
+
+                # ── Texto del nombre del negocio ──────────────────────────────
+                self.saveState()
+                self.setFont("Helvetica-Bold", 60)
+                self.setFillColorRGB(0.75, 0.75, 0.75)
+                self.setFillAlpha(0.18)
+                self.translate(page_width / 2, page_height / 2)
+                self.rotate(45)
+                text_width = self.stringWidth(biz, "Helvetica-Bold", 60)
+                self.drawString(-text_width / 2, 0, biz)
+                self.restoreState()
+
+                pdf_canvas.Canvas.showPage(self)
+
+            pdf_canvas.Canvas.save(self)
+
+    doc = SimpleDocTemplate(path, pagesize=A4,
+                            leftMargin=2*cm, rightMargin=2*cm,
+                            topMargin=2*cm, bottomMargin=2*cm,
+                            canvasmaker=WatermarkCanvas)
+    styles = getSampleStyleSheet()
+    bold11 = ParagraphStyle("bold11", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=11)
+    normal10 = ParagraphStyle("n10", parent=styles["Normal"], fontSize=10)
+    right10 = ParagraphStyle("r10", parent=styles["Normal"], fontSize=10, alignment=TA_RIGHT)
+    story = []
+
+    env = _read_env()
+    biz = business_name or env.get("BUSINESS_NAME", "Mi Empresa")
+    biz_phone = env.get("BUSINESS_PHONE", "")
+    biz_email = env.get("BUSINESS_EMAIL", "")
+    biz_address = env.get("BUSINESS_ADDRESS", "")
+
+    # ── Encabezado: negocio a la izquierda, datos factura a la derecha ────────
+    biz_lines = f"<b>{biz}</b>"
+    if biz_address: biz_lines += f"<br/>{biz_address}"
+    if biz_phone:   biz_lines += f"<br/>Tel: {biz_phone}"
+    if biz_email:   biz_lines += f"<br/>{biz_email}"
+
+    inv_lines = (f"<b>FACTURA</b><br/>"
+                 f"No: {invoice.get('invoice_id', '')}<br/>"
+                 f"Fecha: {invoice.get('timestamp', '')[:10]}")
+
+    header_tbl = Table(
+        [[Paragraph(biz_lines, ParagraphStyle("biz", parent=styles["Normal"], fontSize=12)),
+          Paragraph(inv_lines, ParagraphStyle("inv", parent=styles["Normal"], fontSize=11, alignment=TA_RIGHT))]],
+        colWidths=[10*cm, 7*cm]
+    )
+    header_tbl.setStyle(TableStyle([
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("LINEBELOW", (0,0), (-1,0), 1.5, colors.HexColor("#1B6CA8")),
+        ("BOTTOMPADDING", (0,0), (-1,0), 8),
+    ]))
+    story.append(header_tbl)
+    story.append(Spacer(1, 0.4*cm))
+
+    # ── Datos del cliente ─────────────────────────────────────────────────────
+    cliente = invoice.get("customer") or "Consumidor final"
+    telefono = invoice.get("customer_phone", "")
+    direccion = invoice.get("customer_address", "")
+    rfc = invoice.get("customer_rfc", "")
+    notas = invoice.get("notes", "")
+
+    client_rows = [[Paragraph("<b>DATOS DEL CLIENTE</b>", bold11), ""]]
+    client_rows.append([Paragraph("Nombre:", normal10), Paragraph(cliente, normal10)])
+    if telefono:  client_rows.append([Paragraph("Teléfono:", normal10), Paragraph(telefono, normal10)])
+    if direccion: client_rows.append([Paragraph("Dirección:", normal10), Paragraph(direccion, normal10)])
+    if rfc:       client_rows.append([Paragraph("RFC:", normal10), Paragraph(rfc, normal10)])
+
+    ct = Table(client_rows, colWidths=[3.5*cm, 13.5*cm])
+    ct.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#EDE8E3")),
+        ("SPAN", (0,0), (-1,0)),
+        ("TOPPADDING", (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+        ("LEFTPADDING", (0,0), (-1,-1), 6),
+        ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#D1CBC4")),
+        ("INNERGRID", (0,1), (-1,-1), 0.3, colors.HexColor("#D1CBC4")),
+    ]))
+    story.append(ct)
+    story.append(Spacer(1, 0.4*cm))
+
+    # ── Tabla de items ────────────────────────────────────────────────────────
+    headers = [Paragraph(h, ParagraphStyle("th", parent=styles["Normal"],
+               fontName="Helvetica-Bold", fontSize=10, textColor=colors.white))
+               for h in ["SKU", "Descripción", "Cant.", "Precio Unit.", "Subtotal"]]
+    rows = [headers]
+    for item in invoice.get("items", []):
+        rows.append([
+            Paragraph(item.get("sku", ""), normal10),
+            Paragraph(item.get("product_name", ""), normal10),
+            Paragraph(str(item.get("quantity", 1)), normal10),
+            Paragraph(f"${item.get('unit_price', 0):.2f}", right10),
+            Paragraph(f"${item.get('subtotal', 0):.2f}", right10),
+        ])
+    rows.append(["", "", "",
+                 Paragraph("<b>TOTAL</b>", ParagraphStyle("tot", parent=styles["Normal"],
+                           fon

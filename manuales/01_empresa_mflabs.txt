@@ -1,0 +1,32 @@
+# MFLabs — Quiénes Somos
+
+## ¿Qué es MFLabs?
+MFLabs es una empresa especializada en automatización de procesos, digitalización empresarial y desarrollo de aplicativos a medida. Ayudamos a negocios de todos los tamaños a transformar sus operaciones manuales en sistemas inteligentes, eficientes y escalables.
+
+Nuestra misión es simple: que tu empresa trabaje más inteligente, no más duro.
+
+## ¿Qué hacemos?
+- Automatizamos procesos repetitivos que consumen tiempo y recursos
+- Digitalizamos operaciones que aún se manejan en papel o de forma manual
+- Desarrollamos aplicaciones web, móviles y de escritorio personalizadas
+- Implementamos bots e inteligencia artificial para atención al cliente
+- Integramos sistemas existentes para que trabajen juntos sin fricciones
+
+## ¿Por qué MFLabs?
+- Soluciones 100% personalizadas a tu negocio
+- Equipo con experiencia en múltiples industrias
+- Soporte continuo después de la entrega
+- Precios accesibles con resultados medibles
+- Tecnología de punta: IA, cloud, automatización RPA
+
+## Sectores que atendemos
+- Comercio y retail
+- Servicios profesionales
+- Salud y clínicas
+- Educación
+- Logística y distribución
+- Restaurantes y hostelería
+- Cualquier negocio que quiera crecer con tecnología
+
+## Contacto
+Para cotizaciones, demos o consultas: contacta a tu asesor MFLabs o escríbenos directamente.
