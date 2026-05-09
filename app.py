@@ -1512,25 +1512,6 @@ class MainWindow(QMainWindow):
             btn_firmas.clicked.connect(self._manage_firmas)
             layout.addWidget(btn_firmas)
 
-            # ── Control del bot ───────────────────────────────────────────────
-            bot_section = QLabel("CONTROL BOT")
-            bot_section.setStyleSheet(f"color: {SUBTEXT}; font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 4px 8px 2px 8px; margin-top: 8px;")
-            layout.addWidget(bot_section)
-
-            self.btn_toggle = QPushButton("⏸  Pausar Bot")
-            self.btn_toggle.setObjectName("bot_off")
-            self.btn_toggle.clicked.connect(self._toggle_bot)
-            layout.addWidget(self.btn_toggle)
-
-            btn_restart = QPushButton("🔄  Reiniciar Bot")
-            btn_restart.setObjectName("bot_restart")
-            btn_restart.clicked.connect(self._restart_bot)
-            layout.addWidget(btn_restart)
-
-            self.bot_status = QLabel("🟢  Bot activo")
-            self.bot_status.setStyleSheet(f"color: {SUCCESS}; font-size: 12px; padding: 6px 8px 8px 8px;")
-            layout.addWidget(self.bot_status)
-
         # ── Cerrar sesión (siempre al fondo) ──────────────────────────────────
         btn_logout = QPushButton("🚪  Cerrar Sesión")
         btn_logout.setObjectName("bot_off")
@@ -2372,29 +2353,6 @@ class MainWindow(QMainWindow):
                 size = self._dashboard_widget.size()
                 self._watermark.setGeometry(0, 0, size.width(), size.height())
 
-    # ── Control Bot ───────────────────────────────────────────────────────────
-    def _toggle_bot(self):
-        self._bot_running = not self._bot_running
-        global bot_enabled
-        bot_enabled = self._bot_running
-        if self._bot_running:
-            self.btn_toggle.setText("⏸  Pausar Bot")
-            self.btn_toggle.setObjectName("bot_off")
-            self.bot_status.setText("🟢  Bot activo")
-            self.bot_status.setStyleSheet(f"color: {SUCCESS}; font-size: 12px; padding: 6px 8px 8px 8px;")
-            self.stat_bot.setText("Activo")
-            self.stat_bot.setStyleSheet(f"color: {SUCCESS}; font-size: 26px; font-weight: 700;")
-        else:
-            self.btn_toggle.setText("▶  Activar Bot")
-            self.btn_toggle.setObjectName("bot_on")
-            self.bot_status.setText("🔴  Bot pausado")
-            self.bot_status.setStyleSheet(f"color: {DANGER}; font-size: 12px; padding: 6px 8px 8px 8px;")
-            self.stat_bot.setText("Pausado")
-            self.stat_bot.setStyleSheet(f"color: {DANGER}; font-size: 26px; font-weight: 700;")
-        self.btn_toggle.setStyleSheet("")
-        self.btn_toggle.style().unpolish(self.btn_toggle)
-        self.btn_toggle.style().polish(self.btn_toggle)
-
     def _change_dashboard_image(self):
         """Permite seleccionar una imagen o GIF para el dashboard."""
         path, _ = QFileDialog.getOpenFileName(
@@ -2429,28 +2387,6 @@ class MainWindow(QMainWindow):
             # Para imágenes estáticas, cargar directamente
             pix = QPixmap(path)
             self._custom_image_label.setPixmap(pix)
-
-    def _restart_bot(self):
-        self._bot_running = False
-        global bot_enabled
-        bot_enabled = False
-        self.bot_status.setText("🟡  Reiniciando...")
-        self.bot_status.setStyleSheet(f"color: {WARNING}; font-size: 12px; padding: 6px 8px 8px 8px;")
-        QTimer.singleShot(1500, self._finish_restart)
-
-    def _finish_restart(self):
-        self._bot_running = True
-        global bot_enabled
-        bot_enabled = True
-        self.btn_toggle.setText("⏸  Pausar Bot")
-        self.btn_toggle.setObjectName("bot_off")
-        self.bot_status.setText("🟢  Bot activo")
-        self.bot_status.setStyleSheet(f"color: {SUCCESS}; font-size: 12px; padding: 6px 8px 8px 8px;")
-        self.stat_bot.setText("Activo")
-        self.stat_bot.setStyleSheet(f"color: {SUCCESS}; font-size: 26px; font-weight: 700;")
-        self.btn_toggle.setStyleSheet("")
-        self.btn_toggle.style().unpolish(self.btn_toggle)
-        self.btn_toggle.style().polish(self.btn_toggle)
 
     # ── Navegación ────────────────────────────────────────────────────────────
     def _nav(self, page: str):
@@ -2546,14 +2482,6 @@ class MainWindow(QMainWindow):
             self.dash_alert.setVisible(True)
         else:
             self.dash_alert.setVisible(False)
-
-        # Dashboard: bot
-        if self._bot_running:
-            self.dash_bot_val.setText("Activo")
-            self.dash_bot_val.setStyleSheet(f"color: {SUCCESS}; font-size: 32px; font-weight: 700;")
-        else:
-            self.dash_bot_val.setText("Pausado")
-            self.dash_bot_val.setStyleSheet(f"color: {DANGER}; font-size: 32px; font-weight: 700;")
 
         # Dashboard: WhatsApp
         import urllib.request as _ur, json as _json
