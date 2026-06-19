@@ -110,6 +110,22 @@ class CreateProfileDialog(QDialog):
         if pw != pw2:
             self._err("Las contraseñas no coinciden.")
             return
+        # Verificar que la key activa no tenga ya un perfil creado
+        try:
+            from lic_manager.license_manager import _load_local
+            local_lic = _load_local()
+            key = local_lic.get('key', '')
+            if key:
+                from agent.profiles import list_profiles
+                existing = list_profiles()
+                if len(existing) >= 1:
+                    self._err(
+                        "Ya existe un perfil creado para esta licencia.\n"
+                        "Solo se permite un perfil por key."
+                    )
+                    return
+        except Exception:
+            pass
         create_profile(name, user, pw)
         self.accept()
 
@@ -305,7 +321,80 @@ class ProfileManagerScreen(QWidget):
         super().__init__(parent)
         self.setStyleSheet(BASE_QSS)
         self._selected_profile_id = None
+        self._authenticated = False  # se autentica al entrar
         self._build()
+
+    def showEvent(self, event):
+        """Pide credenciales de admin solo si ya hay perfiles creados."""
+        super().showEvent(event)
+        self._authenticated = False
+        if list_profiles():
+            self._ask_admin_credentials()
+        else:
+            self._authenticated = True  # primer uso, sin perfiles aun
+
+    def _ask_admin_credentials(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Acceso de Administrador")
+        dlg.setFixedWidth(360)
+        dlg.setStyleSheet(BASE_QSS)
+        dlg.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(24, 24, 24, 24)
+        lay.setSpacing(12)
+
+        lbl = QLabel("🔒  Ingresa tus credenciales de administrador para gestionar perfiles.")
+        lbl.setStyleSheet(f"color:{TEXT}; font-size:13px;")
+        lbl.setWordWrap(True)
+        lay.addWidget(lbl)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        profile_cb = QComboBox()
+        for p in list_profiles():
+            profile_cb.addItem(p["name"], p["id"])
+        user_input = QLineEdit()
+        user_input.setPlaceholderText("Usuario admin")
+        pass_input = QLineEdit()
+        pass_input.setPlaceholderText("Contraseña")
+        pass_input.setEchoMode(QLineEdit.EchoMode.Password)
+        form.addRow("Perfil:", profile_cb)
+        form.addRow("Usuario:", user_input)
+        form.addRow("Contraseña:", pass_input)
+        lay.addLayout(form)
+
+        err_lbl = QLabel("")
+        err_lbl.setStyleSheet(f"color:{DANGER}; font-size:12px;")
+        lay.addWidget(err_lbl)
+
+        btns = QHBoxLayout()
+        btn_cancel = QPushButton("Cancelar")
+        btn_cancel.setObjectName("secondary")
+        btn_confirm = QPushButton("Entrar")
+
+        def confirm():
+            pid = profile_cb.currentData()
+            result = authenticate(pid, user_input.text().strip(), pass_input.text())
+            if not result or result.get("role") != "admin":
+                err_lbl.setText("Credenciales incorrectas o no eres admin.")
+                pass_input.clear()
+                return
+            self._authenticated = True
+            dlg.accept()
+
+        def cancel():
+            dlg.reject()
+            self.back.emit()
+
+        btn_cancel.clicked.connect(cancel)
+        btn_confirm.clicked.connect(confirm)
+        pass_input.returnPressed.connect(confirm)
+        btns.addWidget(btn_cancel)
+        btns.addWidget(btn_confirm)
+        lay.addLayout(btns)
+
+        dlg.exec()
 
     def _build(self):
         layout = QHBoxLayout(self)
@@ -387,12 +476,15 @@ class ProfileManagerScreen(QWidget):
             self._refresh_profiles()
 
     def _delete_profile(self):
-        if not self._selected_profile_id:
+        if not self._authenticated or not self._selected_profile_id:
+            return
+        profile = get_profile(self._selected_profile_id)
+        if not profile:
             return
         b = QMessageBox(self)
         b.setStyleSheet("QMessageBox{background:#fff;}QLabel{color:#1F2937;}")
         b.setWindowTitle("Confirmar")
-        b.setText("¿Eliminar este perfil y todos sus datos?")
+        b.setText(f"¿Eliminar el perfil '{profile['name']}' y todos sus datos?")
         b.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         b.exec()
         if b.result() == QMessageBox.StandardButton.Yes:
@@ -409,12 +501,18 @@ class ProfileManagerScreen(QWidget):
             self._on_profile_selected(self.profile_list.currentItem())
 
     def _delete_user(self):
-        if not self._selected_profile_id:
+        if not self._authenticated or not self._selected_profile_id:
             return
         item = self.users_list.currentItem()
         if not item:
             return
-        # Extraer username del texto "icon  username  [role]"
         username = item.text().split("  ")[1].strip()
-        delete_user(self._selected_profile_id, username)
-        self._on_profile_selected(self.profile_list.currentItem())
+        b = QMessageBox(self)
+        b.setStyleSheet("QMessageBox{background:#fff;}QLabel{color:#1F2937;}")
+        b.setWindowTitle("Confirmar")
+        b.setText(f"¿Eliminar el usuario '{username}'?")
+        b.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        b.exec()
+        if b.result() == QMessageBox.StandardButton.Yes:
+            delete_user(self._selected_profile_id, username)
+            self._on_profile_selected(self.profile_list.currentItem())

@@ -34,3 +34,12 @@ def delete_record(profile_id: str, sale_id: str):
     records = [r for r in _load(profile_id)
                if r.get("sale_id") != sale_id and r.get("invoice_id") != sale_id]
     _save(profile_id, records)
+
+
+def update_record(profile_id: str, sale_id: str, updated: dict):
+    records = _load(profile_id)
+    for i, r in enumerate(records):
+        if r.get("invoice_id") == sale_id or r.get("sale_id") == sale_id:
+            records[i] = updated
+            break
+    _save(profile_id, records)

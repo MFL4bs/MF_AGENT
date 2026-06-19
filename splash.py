@@ -181,7 +181,7 @@ class SplashScreen(QSplashScreen):
         layout.addSpacing(28)
 
         # ── Footer ────────────────────────────────────────────────────────────
-        footer = QLabel("© 2025 Jimmy Mojica · MFLABS")
+        footer = QLabel("© 2026 Jimmy Mojica · MFLABS")
         footer.setStyleSheet("""
             font-size: 9px;
             color: rgba(71, 85, 105, 0.8);

@@ -67,17 +67,26 @@ function createClient() {
 
     c.on('message', async (msg) => {
         if (msg.fromMe) return;
-        try {
-            const res = await axios.post(`${BACKEND}/webhook/whatsapp`, {
-                From: msg.from,
-                Body: msg.body
-            });
-            const reply = res.data?.reply;
-            if (reply && reply.trim()) {
-                await msg.reply(reply);
+        // Reintentar hasta 3 veces si el backend no responde
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const res = await axios.post(`${BACKEND}/webhook/whatsapp`, {
+                    From: msg.from,
+                    Body: msg.body
+                }, { timeout: 10000 });
+                const reply = res.data?.reply;
+                if (reply && reply.trim()) {
+                    await msg.reply(reply);
+                }
+                break;
+            } catch (e) {
+                if (attempt < 3) {
+                    console.log(`Backend no disponible, reintentando (${attempt}/3)...`);
+                    await new Promise(r => setTimeout(r, 2000 * attempt));
+                } else {
+                    console.error('Error enviando al backend:', e.message);
+                }
             }
-        } catch (e) {
-            console.error('Error enviando al backend:', e.message);
         }
     });
 

@@ -17,20 +17,32 @@ Estructura de profiles.json:
 import json
 import hashlib
 import uuid
+import sys
 from pathlib import Path
 
-PROFILES_FILE = Path(__file__).parent.parent / "data" / "profiles.json"
+
+def _data_root() -> Path:
+    """Directorio persistente junto al .exe o al script en desarrollo."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent / "data"
+    return Path(__file__).parent.parent / "data"
+
+
+def _profiles_file() -> Path:
+    return _data_root() / "profiles.json"
 
 
 def _load() -> dict:
-    if PROFILES_FILE.exists():
-        return json.loads(PROFILES_FILE.read_text(encoding="utf-8"))
+    f = _profiles_file()
+    if f.exists():
+        return json.loads(f.read_text(encoding="utf-8"))
     return {"profiles": []}
 
 
 def _save(data: dict):
-    PROFILES_FILE.parent.mkdir(exist_ok=True)
-    PROFILES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    f = _profiles_file()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _hash(password: str) -> str:
@@ -65,9 +77,8 @@ def delete_profile(profile_id: str):
     data = _load()
     data["profiles"] = [p for p in data["profiles"] if p["id"] != profile_id]
     _save(data)
-    # Borrar datos del perfil
     import shutil
-    profile_dir = Path(__file__).parent.parent / "data" / profile_id
+    profile_dir = _data_root() / profile_id
     if profile_dir.exists():
         shutil.rmtree(profile_dir)
 
@@ -103,6 +114,6 @@ def authenticate(profile_id: str, username: str, password: str) -> dict | None:
 
 
 def get_profile_data_dir(profile_id: str) -> Path:
-    d = Path(__file__).parent.parent / "data" / profile_id
+    d = _data_root() / profile_id
     d.mkdir(parents=True, exist_ok=True)
     return d

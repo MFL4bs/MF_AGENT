@@ -20,7 +20,7 @@ from agent.local_inventory import (
     list_products, get_product, upsert_product,
     update_product, delete_product, low_stock_products, next_sku
 )
-from agent.local_sales import record_invoice, list_invoices, delete_record
+from agent.local_sales import record_invoice, list_invoices, delete_record, update_record
 from models.schemas import Product, ProductUpdate, Sale, Invoice, InvoiceItem
 from login import LoginScreen, ProfileManagerScreen
 import main as api_main
@@ -1055,10 +1055,11 @@ def _generate_pdf(invoice: dict, path: str, business_name: str = None):
 
 # ── Modal Factura Multi-Producto ──────────────────────────────────────────────
 class InvoiceDialog(QDialog):
-    def __init__(self, parent=None, products: list = None, business_name: str = None):
+    def __init__(self, parent=None, products: list = None, business_name: str = None, existing: dict = None):
         super().__init__(parent)
         self._business_name = business_name or "Mi Empresa"
-        self.setWindowTitle(f"Nueva Factura — {self._business_name}")
+        self._existing = existing
+        self.setWindowTitle(f"{'Editar' if existing else 'Nueva'} Factura — {self._business_name}")
         self.setMinimumSize(820, 600)
         self.resize(900, 750)
         self.setStyleSheet(QSS)
@@ -1082,7 +1083,7 @@ class InvoiceDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(10)
 
-        title = QLabel(f"\U0001f9fe  Nueva Factura  ·  {self._business_name}")
+        title = QLabel(f"\U0001f9fe  {'Editar' if self._existing else 'Nueva'} Factura  ·  {self._business_name}")
         title.setStyleSheet(f"color: {TEXT}; font-size: 18px; font-weight: 700;")
         layout.addWidget(title)
 
@@ -1094,8 +1095,8 @@ class InvoiceDialog(QDialog):
         cl.addWidget(cl_title)
 
         row1 = QHBoxLayout()
-        self.customer = QLineEdit(); self.customer.setPlaceholderText("Nombre del cliente *")
-        self.customer_phone = QLineEdit(); self.customer_phone.setPlaceholderText("Teléfono")
+        self.customer = QLineEdit(existing.get("customer", "") if existing else ""); self.customer.setPlaceholderText("Nombre del cliente *")
+        self.customer_phone = QLineEdit(existing.get("customer_phone", "") if existing else ""); self.customer_phone.setPlaceholderText("Teléfono")
         self.customer_phone.setFixedWidth(160)
         row1.addWidget(QLabel("Nombre:"))
         row1.addWidget(self.customer, 2)
@@ -1104,8 +1105,8 @@ class InvoiceDialog(QDialog):
         cl.addLayout(row1)
 
         row2 = QHBoxLayout()
-        self.customer_address = QLineEdit(); self.customer_address.setPlaceholderText("Dirección")
-        self.customer_rfc = QLineEdit(); self.customer_rfc.setPlaceholderText("RFC / ID fiscal")
+        self.customer_address = QLineEdit(existing.get("customer_address", "") if existing else ""); self.customer_address.setPlaceholderText("Dirección")
+        self.customer_rfc = QLineEdit(existing.get("customer_rfc", "") if existing else ""); self.customer_rfc.setPlaceholderText("RFC / ID fiscal")
         self.customer_rfc.setFixedWidth(160)
         row2.addWidget(QLabel("Dirección:"))
         row2.addWidget(self.customer_address, 2)
@@ -1114,7 +1115,7 @@ class InvoiceDialog(QDialog):
         cl.addLayout(row2)
 
         row3 = QHBoxLayout()
-        self.notes = QLineEdit(); self.notes.setPlaceholderText("Notas adicionales (opcional)")
+        self.notes = QLineEdit(existing.get("notes", "") if existing else ""); self.notes.setPlaceholderText("Notas adicionales (opcional)")
         row3.addWidget(QLabel("Notas:"))
         row3.addWidget(self.notes)
         cl.addLayout(row3)
@@ -1213,6 +1214,17 @@ class InvoiceDialog(QDialog):
         save = QPushButton("💾  Guardar"); save.setObjectName("primary"); save.clicked.connect(self._save)
         btns.addWidget(cancel); btns.addStretch(); btns.addWidget(save)
         layout.addLayout(btns)
+
+        # Precargar items si es edición
+        if existing:
+            for item in existing.get("items", []):
+                self._rows.append({
+                    "sku": item.get("sku", ""),
+                    "name": item.get("product_name", ""),
+                    "qty": item.get("quantity", 1),
+                    "price": item.get("unit_price", 0),
+                })
+            self._refresh_prod_table()
 
         # Agregar contenido al scroll
         scroll.setWidget(content_widget)
@@ -1354,6 +1366,10 @@ class InvoiceDialog(QDialog):
         inv_dict["customer_rfc"]     = self.customer_rfc.text().strip()
         inv_dict["notes"]            = self.notes.text().strip()
         inv_dict["business_name"]    = self._business_name
+        if self._existing:
+            inv_dict["invoice_id"] = self._existing.get("invoice_id", inv_dict.get("invoice_id", ""))
+            inv_dict["timestamp"]  = self._existing.get("timestamp",  inv_dict.get("timestamp", ""))
+            inv_dict["channel"]    = self._existing.get("channel",    "manual")
         self._extra = inv_dict  # guardado para acceso externo
         return inv
 
@@ -1492,6 +1508,11 @@ class MainWindow(QMainWindow):
             btn_watermark.clicked.connect(self._change_watermark)
             layout.addWidget(btn_watermark)
 
+            btn_biz = QPushButton("🏢  Datos Empresa")
+            btn_biz.setObjectName("primary")
+            btn_biz.clicked.connect(self._manage_business_data)
+            layout.addWidget(btn_biz)
+
             btn_manuals = QPushButton("📚  Manuales")
             btn_manuals.setObjectName("primary")
             btn_manuals.clicked.connect(self._manage_manuals)
@@ -1506,6 +1527,12 @@ class MainWindow(QMainWindow):
             btn_bot_config.setObjectName("primary")
             btn_bot_config.clicked.connect(self._manage_bot_config)
             layout.addWidget(btn_bot_config)
+
+            btn_pull = QPushButton("📥  Sync desde Móvil")
+            btn_pull.setObjectName("primary")
+            btn_pull.clicked.connect(self._pull_from_firestore)
+            layout.addWidget(btn_pull)
+            self._btn_pull = btn_pull
 
             btn_firmas = QPushButton("✍️  Firmas PDF")
             btn_firmas.setObjectName("primary")
@@ -1656,6 +1683,64 @@ class MainWindow(QMainWindow):
                 self, "Exito",
                 f"✅ Logo actualizado. Aparecera en la parte superior izquierda del PDF.\n\nArchivo: {Path(new_path[0]).name}"
             )
+
+    def _manage_business_data(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Datos de la Empresa")
+        dlg.setMinimumSize(440, 300)
+        dlg.setStyleSheet(QSS)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+
+        title = QLabel("🏢  Datos de la Empresa (aparecen en el PDF)")
+        title.setStyleSheet(f"color: {TEXT}; font-size: 17px; font-weight: 700;")
+        layout.addWidget(title)
+
+        env = _read_env()
+        form = QFormLayout()
+        form.setSpacing(10)
+
+        name_input    = QLineEdit(env.get("BUSINESS_NAME", ""))
+        phone_input   = QLineEdit(env.get("BUSINESS_PHONE", ""))
+        email_input   = QLineEdit(env.get("BUSINESS_EMAIL", ""))
+        address_input = QLineEdit(env.get("BUSINESS_ADDRESS", ""))
+
+        name_input.setPlaceholderText("Ej: Mi Empresa S.A.")
+        phone_input.setPlaceholderText("Ej: +52 55 1234 5678")
+        email_input.setPlaceholderText("Ej: contacto@miempresa.com")
+        address_input.setPlaceholderText("Ej: Calle 123, Ciudad, País")
+
+        form.addRow("Nombre:",    name_input)
+        form.addRow("Teléfono:",  phone_input)
+        form.addRow("Email:",     email_input)
+        form.addRow("Dirección:", address_input)
+        layout.addLayout(form)
+
+        btns = QHBoxLayout()
+        btn_cancel = QPushButton("Cancelar")
+        btn_cancel.setObjectName("danger")
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_save = QPushButton("💾  Guardar")
+        btn_save.setObjectName("primary")
+
+        def save():
+            _write_env({
+                "BUSINESS_NAME":    name_input.text().strip() or "Mi Empresa",
+                "BUSINESS_PHONE":   phone_input.text().strip(),
+                "BUSINESS_EMAIL":   email_input.text().strip(),
+                "BUSINESS_ADDRESS": address_input.text().strip(),
+            })
+            dlg.accept()
+            QMessageBox.information(self, "Guardado", "✅ Datos de empresa actualizados.\nAparecen en el encabezado del PDF.")
+
+        btn_save.clicked.connect(save)
+        btns.addWidget(btn_cancel)
+        btns.addStretch()
+        btns.addWidget(btn_save)
+        layout.addLayout(btns)
+        dlg.exec()
 
     def _manage_advisors(self):
         from agent.bot import load_advisors, save_advisors
@@ -2322,9 +2407,9 @@ class MainWindow(QMainWindow):
         sv_layout.addLayout(sv_stats)
 
         self._sales_table = QTableWidget()
-        self._sales_table.setColumnCount(8)
+        self._sales_table.setColumnCount(9)
         self._sales_table.setHorizontalHeaderLabels(
-            ["Fecha", "ID", "Cliente", "Canal", "Items", "Total", "PDF", ""]
+            ["Fecha", "ID", "Cliente", "Canal", "Items", "Total", "PDF", "✏️", "🗑️"]
         )
         self._sales_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self._sales_table.setColumnWidth(0, 130)
@@ -2332,8 +2417,9 @@ class MainWindow(QMainWindow):
         self._sales_table.setColumnWidth(2, 120)
         self._sales_table.setColumnWidth(3, 90)
         self._sales_table.setColumnWidth(5, 90)
-        self._sales_table.setColumnWidth(6, 80)
-        self._sales_table.setColumnWidth(7, 90)
+        self._sales_table.setColumnWidth(6, 70)
+        self._sales_table.setColumnWidth(7, 50)
+        self._sales_table.setColumnWidth(8, 50)
         self._sales_table.verticalHeader().setDefaultSectionSize(40)
         self._sales_table.verticalHeader().setVisible(False)
         self._sales_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -2544,17 +2630,56 @@ class MainWindow(QMainWindow):
             self._sales_table.setItem(row, 5, total_item)
             pdf_btn = QPushButton("PDF")
             pdf_btn.setFixedHeight(30)
-            pdf_btn.setFixedWidth(70)
+            pdf_btn.setFixedWidth(60)
             pdf_btn.setStyleSheet(f"background:{ACCENT2};color:white;border:none;border-radius:4px;font-size:12px;font-weight:600;")
             pdf_btn.clicked.connect(lambda _, r=rec: self._export_pdf(r))
             self._sales_table.setCellWidget(row, 6, pdf_btn)
+            edit_btn = QPushButton("✏️")
+            edit_btn.setFixedHeight(30)
+            edit_btn.setFixedWidth(40)
+            edit_btn.setStyleSheet(f"background:{ACCENT};color:white;border:none;border-radius:4px;font-size:12px;")
+            edit_btn.setVisible(self._is_admin)
+            edit_btn.clicked.connect(lambda _, r=rec: self._edit_invoice(r))
+            self._sales_table.setCellWidget(row, 7, edit_btn)
             del_btn = QPushButton("🗑️")
             del_btn.setFixedHeight(30)
-            del_btn.setFixedWidth(60)
-            del_btn.setStyleSheet(f"background:{DANGER};color:white;border:none;border-radius:4px;font-size:12px;font-weight:600;")
+            del_btn.setFixedWidth(40)
+            del_btn.setStyleSheet(f"background:{DANGER};color:white;border:none;border-radius:4px;font-size:12px;")
             del_btn.setVisible(self._is_admin)
             del_btn.clicked.connect(lambda _, r=rec: self._delete_record(r))
-            self._sales_table.setCellWidget(row, 7, del_btn)
+            self._sales_table.setCellWidget(row, 8, del_btn)
+
+    def _edit_invoice(self, record: dict):
+        if not self._is_admin:
+            return
+        from agent.profiles import get_profile
+        profile = get_profile(self._profile_id)
+        biz_name = record.get("business_name") or (profile["name"] if profile else "Mi Empresa")
+        dlg = InvoiceDialog(self, self.products, business_name=biz_name, existing=record)
+        if dlg.exec():
+            inv_dict = dlg.get_invoice_dict()
+            invoice = dlg.get_invoice()
+            try:
+                # Restaurar stock de la factura vieja
+                for item in record.get("items", []):
+                    sku = item.get("sku", "")
+                    if sku.startswith("COT-"):
+                        continue
+                    p = get_product(self._profile_id, sku)
+                    if p:
+                        update_product(self._profile_id, sku, {"stock": int(p["stock"]) + item.get("quantity", 0)})
+                # Descontar stock de la factura nueva
+                for item in invoice.items:
+                    if item.sku.startswith("COT-"):
+                        continue
+                    p = get_product(self._profile_id, item.sku)
+                    if p:
+                        update_product(self._profile_id, item.sku, {"stock": max(0, int(p["stock"]) - item.quantity)})
+                update_record(self._profile_id, record.get("invoice_id", ""), inv_dict)
+                self._show_sales_view()
+                self._load_products()
+            except Exception as e:
+                _msg(self, "Error", str(e))
 
     def _add_invoice(self):
         from agent.profiles import get_profile
@@ -2580,8 +2705,17 @@ class MainWindow(QMainWindow):
                     _generate_pdf(inv_dict, path, business_name=biz_name)
                     import subprocess
                     subprocess.Popen(["start", "", path], shell=True)
+                    # Subir PDF a Firestore para el móvil
+                    from agent.firestore_sync import upload_invoice_pdf
+                    import threading
+                    threading.Thread(
+                        target=upload_invoice_pdf,
+                        args=(self._profile_id, inv_dict.get('invoice_id', ''), path),
+                        daemon=True
+                    ).start()
                 self._show_sales_view()
                 self._load_products()
+                self._sync_firestore()
             except Exception as e:
                 _msg(self, "Error", str(e))
 
@@ -2598,6 +2732,14 @@ class MainWindow(QMainWindow):
                 _generate_pdf(record, path, business_name=biz_name)
                 import subprocess
                 subprocess.Popen(["start", "", path], shell=True)
+                # Subir PDF a Firestore para el móvil
+                from agent.firestore_sync import upload_invoice_pdf
+                import threading
+                threading.Thread(
+                    target=upload_invoice_pdf,
+                    args=(self._profile_id, record.get('invoice_id', ''), path),
+                    daemon=True
+                ).start()
             except Exception as e:
                 QMessageBox.warning(self, "Error al generar PDF", str(e))
 
@@ -2609,9 +2751,40 @@ class MainWindow(QMainWindow):
         box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         box.exec()
         if box.result() == QMessageBox.StandardButton.Yes:
+            for item in record.get("items", []):
+                sku = item.get("sku", "")
+                if sku.startswith("COT-"):
+                    continue
+                qty = item.get("quantity", 0)
+                p = get_product(self._profile_id, sku)
+                if p:
+                    new_stock = int(p["stock"]) + qty
+                    update_product(self._profile_id, sku, {"stock": new_stock})
+                    # Restaurar stock en Firestore
+                    try:
+                        from agent.firestore_sync import delete_product_firestore
+                        import firebase_admin
+                        from firebase_admin import firestore as _fs
+                        _app = firebase_admin.get_app("data_sync")
+                        _db = _fs.client(app=_app)
+                        _db.collection("inventory").document(
+                            f"{self._profile_id}_{sku}"
+                        ).update({"stock": new_stock})
+                    except Exception as _e:
+                        print(f"[Firestore] Error restaurando stock {sku}: {_e}")
             sid = record.get("invoice_id", "")
             delete_record(self._profile_id, sid)
+            # Borrar factura en Firestore
+            try:
+                import firebase_admin
+                from firebase_admin import firestore as _fs
+                _app = firebase_admin.get_app("data_sync")
+                _db2 = _fs.client(app=_app)
+                _db2.collection("invoices").document(sid).delete()
+            except Exception as _e:
+                print(f"[Firestore] Error al borrar factura {sid}: {_e}")
             self._show_sales_view()
+            self._load_products()
 
     def _add_sale(self):
         dlg = SaleDialog(self, self.products)
@@ -2691,6 +2864,34 @@ class MainWindow(QMainWindow):
         self._populate_table(filtered)
 
     # ── CRUD ──────────────────────────────────────────────────────────────────
+    def _pull_from_firestore(self):
+        self._btn_pull.setEnabled(False)
+        self._btn_pull.setText("⏳  Sincronizando...")
+        from agent.firestore_sync import PullWorker
+        self._pull_worker = PullWorker(self._profile_id)
+        self._pull_worker.done.connect(self._on_pull_done)
+        self._pull_worker.start()
+
+    def _on_pull_done(self, ok: bool, msg: str, changes: list):
+        self._btn_pull.setEnabled(True)
+        self._btn_pull.setText("📥  Sync desde Móvil")
+        self._load_products()
+        # Si hay ventas nuevas y estamos en la vista de ventas, refrescar
+        page = getattr(self, "_current_page", "Dashboard")
+        if page == "Ventas":
+            self._show_sales_view()
+        if changes:
+            detail = "\n".join(changes)
+            QMessageBox.information(self, "Sync completado", f"{msg}\n\n{detail}")
+        else:
+            QMessageBox.information(self, "Sync completado", msg)
+
+    def _sync_firestore(self):
+        from agent.firestore_sync import SyncWorker
+        self._fw = SyncWorker(self._profile_id)
+        self._fw.done.connect(lambda ok, msg: print(f"[Sync] {msg}"))
+        self._fw.start()
+
     def _add_product(self):
         if not self._is_admin:
             return
@@ -2709,6 +2910,7 @@ class MainWindow(QMainWindow):
                 p.image_url = str(dest)
             upsert_product(self._profile_id, p.dict())
             self._load_products()
+            self._sync_firestore()
 
     def _edit_product(self, sku: str):
         if not self._is_admin:
@@ -2735,6 +2937,7 @@ class MainWindow(QMainWindow):
                 "category": p.category, "image_url": p.image_url
             })
             self._load_products()
+            self._sync_firestore()
 
     def _delete_product(self, sku: str):
         if not self._is_admin:
@@ -2747,6 +2950,8 @@ class MainWindow(QMainWindow):
         box.exec()
         if box.result() == QMessageBox.StandardButton.Yes:
             delete_product(self._profile_id, sku)
+            from agent.firestore_sync import delete_product_firestore
+            delete_product_firestore(self._profile_id, sku)
             self._load_products()
 
 
@@ -2790,8 +2995,22 @@ class AppController(QStackedWidget):
         self._main.logout.connect(self._on_logout)
         self.addWidget(self._main)
         self.setCurrentWidget(self._main)
+        # Sync inmediato al login
+        self._do_sync(session["profile_id"])
+        # Sync automático cada 5 minutos
+        self._sync_timer = QTimer()
+        self._sync_timer.timeout.connect(lambda: self._do_sync(session["profile_id"]))
+        self._sync_timer.start(5 * 60 * 1000)
+
+    def _do_sync(self, profile_id: str):
+        from agent.firestore_sync import SyncWorker
+        self._sync = SyncWorker(profile_id)
+        self._sync.done.connect(lambda ok, msg: print(f"[Sync] {msg}"))
+        self._sync.start()
 
     def _on_logout(self):
+        if hasattr(self, '_sync_timer') and self._sync_timer:
+            self._sync_timer.stop()
         old = self._main
         self._login._refresh_profiles()
         self._login.username_input.clear()
@@ -2810,29 +3029,34 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
     app.setFont(QFont("Segoe UI", 10))
-    
-    # Establecer icono de la aplicación
+
     icon_path = Path(__file__).parent / "MF_LABS.ico"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
     else:
-        # Usar PNG si no existe ICO
         png_path = Path(__file__).parent / "MF_LABS.png"
         if png_path.exists():
             app.setWindowIcon(QIcon(str(png_path)))
-    
-    # Mostrar splash screen
-    from splash import SplashScreen
-    splash = SplashScreen()
-    splash.show()
-    app.processEvents()
-    
-    # Crear controlador principal (pero NO mostrarlo aún)
-    controller = AppController()
-    controller.setStyleSheet(QSS)
-    controller.hide()  # Asegurar que esté oculto
-    
-    # Esperar a que termine la animación del splash (3000ms + 300ms fade out)
-    QTimer.singleShot(3300, lambda: splash.finish_loading(controller))
-    
+
+    # ── Validar licencia antes de arrancar ────────────────────────────────────
+    from lic_manager.activation_screen import ActivationScreen
+
+    activation = ActivationScreen()
+    activation.setWindowTitle("MF Agent — Activación")
+    activation.setMinimumSize(520, 400)
+
+    def _launch_app():
+        activation.hide()
+        from splash import SplashScreen
+        splash = SplashScreen()
+        splash.show()
+        app.processEvents()
+        controller = AppController()
+        controller.setStyleSheet(QSS)
+        controller.hide()
+        QTimer.singleShot(3300, lambda: splash.finish_loading(controller))
+
+    activation.activated.connect(_launch_app)
+    activation.show()
+
     sys.exit(app.exec())

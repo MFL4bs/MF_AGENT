@@ -149,9 +149,13 @@ async def whatsapp_webhook(msg: WhatsAppMessage):
     if not desktop_app.bot_enabled:
         return {"reply": "Servicio pausado temporalmente."}
 
-    from agent.profiles import list_profiles
-    profiles   = list_profiles()
-    profile_id = profiles[0]["id"] if profiles else None
+    from lic_manager.license_manager import validate
+    _lic = validate()
+    profile_id = _lic.get("profile_id") if _lic.get("ok") else None
+    if not profile_id:
+        from agent.profiles import list_profiles
+        profiles = list_profiles()
+        profile_id = profiles[0]["id"] if profiles else None
     history    = get_history(phone)
 
     # ── Admin: nunca recibe el menu del bot ───────────────────────────────────
