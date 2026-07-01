@@ -1,0 +1,2 @@
+[FirestoreListener] Error: Firebase app named "data_sync" already exists. This means you called initialize_app() more than once with the same app name as the second argument. Make sure you provide a unique name every time you call initialize_app().
+[Sync] Sync OK: 10 productos, 1 ventas

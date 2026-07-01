@@ -13,9 +13,6 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPropertyAnimation, QE
 from PyQt6.QtGui import QFont, QColor, QIcon, QPixmap
 from pathlib import Path
 
-from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebEngineCore import QWebEngineSettings
-
 from agent.local_inventory import (
     list_products, get_product, upsert_product,
     update_product, delete_product, low_stock_products, next_sku
@@ -62,7 +59,7 @@ def _make_logo_pixmap(size: int) -> QPixmap | None:
 # ── Estado del bot ───────────────────────────────────────────────────────────
 bot_enabled = True
 
-ENV_PATH = Path(__file__).parent / ".env"
+ENV_PATH = (Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent) / ".env"
 
 def _read_env() -> dict:
     env = {}
@@ -73,6 +70,38 @@ def _read_env() -> dict:
                 k, _, v = line.partition("=")
                 env[k.strip()] = v.strip()
     return env
+
+def _get_admin_phones() -> list:
+    """Retorna lista de números admin desde el .env (soporta múltiples separados por coma)."""
+    env = _read_env()
+    raw = env.get("ADMIN_PHONES", env.get("OWNER_PHONE", ""))
+    phones = [p.strip() for p in raw.split(",") if p.strip()]
+    return phones
+
+def _notify_all_admins(msg: str):
+    """Envía un mensaje WhatsApp a todos los números admin registrados."""
+    import threading
+    def _send():
+        try:
+            import urllib.request, json
+            phones = _get_admin_phones()
+            if not phones:
+                return
+            for phone in phones:
+                try:
+                    payload = json.dumps({"phone": phone, "message": msg}).encode()
+                    req = urllib.request.Request(
+                        "http://127.0.0.1:3000/send",
+                        data=payload,
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
+                    urllib.request.urlopen(req, timeout=5)
+                except Exception as e:
+                    print(f"[Notify] Error enviando a {phone}: {e}")
+        except Exception as e:
+            print(f"[Notify] Error general: {e}")
+    threading.Thread(target=_send, daemon=True).start()
 
 def _write_env(updates: dict):
     lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
@@ -253,6 +282,110 @@ class BridgeWorker(QThread):
     def stop(self):
         if self._proc and self._proc.poll() is None:
             self._proc.terminate()
+
+
+# ── Modal WhatsApp solo lectura (vendedor) ───────────────────────────────────
+class WhatsAppViewDialog(QDialog):
+    """Vista de estado del bridge para vendedores — sin editar número."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Estado de WhatsApp")
+        self.setMinimumSize(700, 600)
+        self.resize(1000, 820)
+        self.setStyleSheet(QSS)
+        self._worker = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+
+        title = QLabel("📱  WhatsApp")
+        title.setStyleSheet(f"color: {TEXT}; font-size: 18px; font-weight: 700;")
+        layout.addWidget(title)
+
+        info = QLabel(
+            "Haz clic en <b>Iniciar Bridge</b>. Aparecerá un código QR abajo.\n"
+            "Ábrelo en WhatsApp → Dispositivos vinculados → Vincular dispositivo."
+        )
+        info.setStyleSheet(f"color: {SUBTEXT}; font-size: 12px;")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        # Número actual (solo lectura)
+        env = _read_env()
+        num_row = QHBoxLayout()
+        num_lbl = QLabel("📞  Número admin:")
+        num_lbl.setStyleSheet(f"color: {TEXT}; font-size: 13px; font-weight: 600;")
+        num_val = QLabel(env.get("ADMIN_PHONES", env.get("OWNER_PHONE", "No configurado")))
+        num_val.setStyleSheet(f"color: {SUBTEXT}; font-size: 13px;")
+        num_row.addWidget(num_lbl)
+        num_row.addWidget(num_val)
+        num_row.addStretch()
+        layout.addLayout(num_row)
+
+        self.status_lbl = QLabel("⚪  Bridge detenido")
+        self.status_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 13px; font-weight: 600;")
+        layout.addWidget(self.status_lbl)
+
+        self.console = QTextEdit()
+        self.console.setReadOnly(True)
+        self.console.setStyleSheet(
+            f"background: #1a1a2e; color: #ffffff; font-family: Consolas, monospace;"
+            f"font-size: 8px; border-radius: 8px; padding: 8px;"
+        )
+        layout.addWidget(self.console, 1)
+
+        btns = QHBoxLayout()
+        self.btn_start = QPushButton("▶  Iniciar")
+        self.btn_start.setObjectName("whatsapp")
+        self.btn_start.clicked.connect(self._start)
+
+        self.btn_stop = QPushButton("⏹  Detener")
+        self.btn_stop.setObjectName("danger")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self._stop)
+
+        btn_close = QPushButton("Cerrar")
+        btn_close.setObjectName("primary")
+        btn_close.clicked.connect(self.accept)
+
+        btns.addWidget(self.btn_start)
+        btns.addWidget(self.btn_stop)
+        btns.addStretch()
+        btns.addWidget(btn_close)
+        layout.addLayout(btns)
+
+    def _start(self):
+        bridge_dir = str(Path(__file__).parent / "whatsapp_bridge")
+        self._worker = BridgeWorker(bridge_dir)
+        self._worker.output.connect(self._on_output)
+        self._worker.connected.connect(self._on_connected)
+        self._worker.start()
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.status_lbl.setText("🟡  Iniciando bridge...")
+        self.status_lbl.setStyleSheet(f"color: {WARNING}; font-size: 13px; font-weight: 600;")
+
+    def _stop(self):
+        if self._worker:
+            self._worker.stop()
+            self._worker = None
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        self.status_lbl.setText("⚪  Bridge detenido")
+        self.status_lbl.setStyleSheet(f"color: {SUBTEXT}; font-size: 13px; font-weight: 600;")
+
+    def _on_output(self, line: str):
+        self.console.append(line)
+        self.console.verticalScrollBar().setValue(self.console.verticalScrollBar().maximum())
+
+    def _on_connected(self):
+        self.status_lbl.setText("🟢  WhatsApp conectado")
+        self.status_lbl.setStyleSheet(f"color: {SUCCESS}; font-size: 13px; font-weight: 600;")
+
+    def closeEvent(self, event):
+        super().closeEvent(event)
 
 
 # ── Modal Conectar WhatsApp ───────────────────────────────────────────────────
@@ -561,10 +694,17 @@ class ProductDialog(QDialog):
                 self.category.setCurrentText(text)
         self.category.lineEdit().returnPressed.connect(_on_cat_enter)
 
+        self.cost_price = QDoubleSpinBox()
+        self.cost_price.setRange(0, 99999999)
+        self.cost_price.setDecimals(2)
+        self.cost_price.setPrefix("$ ")
+        self.cost_price.setValue(product.get("cost_price", 0) if product else 0)
+
         form.addRow("SKU *", self.sku)
         form.addRow("Nombre *", self.name)
         form.addRow("Descripción", self.desc)
-        form.addRow("Precio *", self.price)
+        form.addRow("Precio Compra", self.cost_price)
+        form.addRow("Precio Venta *", self.price)
         form.addRow("Stock *", self.stock)
         form.addRow("Categoría", self.category)
         layout.addLayout(form)
@@ -640,6 +780,7 @@ class ProductDialog(QDialog):
             name=self.name.text().strip(),
             description=self.desc.text().strip(),
             price=self.price.value(),
+            cost_price=self.cost_price.value(),
             stock=self.stock.value(),
             category=self.category.currentText(),
             image_url=self._image_url
@@ -729,7 +870,7 @@ class SaleDialog(QDialog):
         add_row.addWidget(btn_add)
         layout.addLayout(add_row)
 
-        self._total_lbl = QLabel("Total: $0.00")
+        self._total_lbl = QLabel("Total: $0")
         self._total_lbl.setStyleSheet(f"color: {ACCENT2}; font-size: 15px; font-weight: 700;")
         layout.addWidget(self._total_lbl)
 
@@ -776,13 +917,13 @@ class SaleDialog(QDialog):
             self._item_table.setItem(i, 0, QTableWidgetItem(row["sku"]))
             self._item_table.setItem(i, 1, QTableWidgetItem(row["name"]))
             self._item_table.setItem(i, 2, QTableWidgetItem(str(row["qty"])))
-            self._item_table.setItem(i, 3, QTableWidgetItem(f"${sub:.2f}"))
+            self._item_table.setItem(i, 3, QTableWidgetItem(f"${sub:,.0f}"))
             del_btn = QPushButton("x")
             del_btn.setFixedSize(28, 28)
             del_btn.setStyleSheet(f"background:{DANGER};color:white;border:none;border-radius:4px;font-weight:700;")
             del_btn.clicked.connect(lambda _, s=row["sku"]: self._remove_item(s))
             self._item_table.setCellWidget(i, 4, del_btn)
-        self._total_lbl.setText(f"Total: ${total:.2f}")
+        self._total_lbl.setText(f"Total: ${total:,.0f}")
 
     def _save(self):
         if not self._rows:
@@ -1094,6 +1235,33 @@ class InvoiceDialog(QDialog):
         cl_title.setStyleSheet(f"color:{TEXT};font-size:13px;font-weight:700;")
         cl.addWidget(cl_title)
 
+        # ── Búsqueda rápida de cliente guardado ───────────────────────────────
+        from agent.local_customers import list_customers, upsert_customer
+        self._all_customers = list_customers(parent._profile_id) if hasattr(parent, '_profile_id') else []
+        self._profile_id_inv = parent._profile_id if hasattr(parent, '_profile_id') else None
+
+        search_row = QHBoxLayout()
+        search_lbl = QLabel("🔍")
+        search_lbl.setStyleSheet(f"color:{SUBTEXT};font-size:14px;")
+        self._client_search = QLineEdit()
+        self._client_search.setPlaceholderText("Buscar cliente guardado...")
+        self._client_search.textChanged.connect(self._on_client_search)
+        self._client_cb = QComboBox()
+        self._client_cb.setFixedWidth(200)
+        self._client_cb.setPlaceholderText("Seleccionar")
+        self._client_cb.currentIndexChanged.connect(self._fill_from_customer)
+        btn_save_client = QPushButton("💾 Guardar")
+        btn_save_client.setObjectName("primary")
+        btn_save_client.setFixedHeight(30)
+        btn_save_client.setFixedWidth(90)
+        btn_save_client.clicked.connect(self._save_client)
+        search_row.addWidget(search_lbl)
+        search_row.addWidget(self._client_search, 1)
+        search_row.addWidget(self._client_cb)
+        search_row.addWidget(btn_save_client)
+        cl.addLayout(search_row)
+        self._refresh_client_combo(self._all_customers)
+
         row1 = QHBoxLayout()
         self.customer = QLineEdit(existing.get("customer", "") if existing else ""); self.customer.setPlaceholderText("Nombre del cliente *")
         self.customer_phone = QLineEdit(existing.get("customer_phone", "") if existing else ""); self.customer_phone.setPlaceholderText("Teléfono")
@@ -1204,7 +1372,7 @@ class InvoiceDialog(QDialog):
         layout.addWidget(self._cot_widget)
 
         # Total general
-        self._total_lbl = QLabel("Total: $0.00")
+        self._total_lbl = QLabel("Total: $0")
         self._total_lbl.setStyleSheet(f"color:{ACCENT2};font-size:16px;font-weight:700;")
         layout.addWidget(self._total_lbl)
 
@@ -1229,6 +1397,57 @@ class InvoiceDialog(QDialog):
         # Agregar contenido al scroll
         scroll.setWidget(content_widget)
         main_layout.addWidget(scroll)
+
+    def _refresh_client_combo(self, customers: list):
+        self._client_cb.blockSignals(True)
+        self._client_cb.clear()
+        self._client_cb.addItem("-- seleccionar --", None)
+        for c in customers:
+            label = f"{c.get('name','')}  {c.get('phone','')}".strip()
+            self._client_cb.addItem(label, c)
+        self._client_cb.blockSignals(False)
+
+    def _on_client_search(self, text: str):
+        q = text.lower()
+        if q:
+            filtered = [c for c in self._all_customers
+                        if q in c.get('name','').lower() or q in c.get('phone','').lower()]
+        else:
+            filtered = self._all_customers
+        self._refresh_client_combo(filtered)
+
+    def _fill_from_customer(self, idx: int):
+        c = self._client_cb.itemData(idx)
+        if not c:
+            return
+        self.customer.setText(c.get('name', ''))
+        self.customer_phone.setText(c.get('phone', ''))
+        self.customer_address.setText(c.get('address', ''))
+        self.customer_rfc.setText(c.get('rfc', ''))
+
+    def _save_client(self):
+        from agent.local_customers import upsert_customer
+        name = self.customer.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Error", "Escribe el nombre del cliente primero.")
+            return
+        c = {
+            'name': name,
+            'phone': self.customer_phone.text().strip(),
+            'address': self.customer_address.text().strip(),
+            'rfc': self.customer_rfc.text().strip(),
+        }
+        # Buscar si ya existe por nombre+phone para actualizar
+        existing_c = next((x for x in self._all_customers
+                           if x.get('name') == name and x.get('phone') == c['phone']), None)
+        if existing_c:
+            c['id'] = existing_c['id']
+        if self._profile_id_inv:
+            saved = upsert_customer(self._profile_id_inv, c)
+            from agent.local_customers import list_customers
+            self._all_customers = list_customers(self._profile_id_inv)
+            self._refresh_client_combo(self._all_customers)
+            QMessageBox.information(self, "Guardado", f"✅ Cliente '{name}' guardado.")
 
     def _toggle_cotizacion(self, checked: bool):
         self._cot_widget.setVisible(checked)
@@ -1264,7 +1483,7 @@ class InvoiceDialog(QDialog):
             self._item_table.setItem(i, 0, QTableWidgetItem(row["sku"]))
             self._item_table.setItem(i, 1, QTableWidgetItem(row["name"]))
             self._item_table.setItem(i, 2, QTableWidgetItem(str(row["qty"])))
-            self._item_table.setItem(i, 3, QTableWidgetItem(f"${sub:.2f}"))
+            self._item_table.setItem(i, 3, QTableWidgetItem(f"${sub:,.0f}"))
             btn = QPushButton("\u2715"); btn.setFixedSize(28,28)
             btn.setStyleSheet(f"background:{DANGER};color:white;border:none;border-radius:4px;")
             btn.clicked.connect(lambda _, s=row["sku"]: self._remove_item(s))
@@ -1336,7 +1555,7 @@ class InvoiceDialog(QDialog):
                 f"Subtotal trabajo: ${trabajo_total:.2f}  "
                 f"(${self._cot_mano.value():.2f}/{unidades[unidad_idx]} x {self._cot_cantidad.value():.2f}{unidades[unidad_idx]})"
             )
-        self._total_lbl.setText(f"Total: ${prod_total + trabajo_total:.2f}")
+        self._total_lbl.setText(f"Total: ${prod_total + trabajo_total:,.0f}")
 
     def _save(self):
         if not self._rows:
@@ -1423,8 +1642,8 @@ class MainWindow(QMainWindow):
         timer.timeout.connect(self._load_products)
         timer.start(30000)
 
-        # Avisar si WhatsApp no está conectado
-        if not _whatsapp_configured():
+        # Avisar si WhatsApp no está conectado — solo al admin
+        if self._is_admin and not _whatsapp_configured():
             QTimer.singleShot(500, self._prompt_whatsapp_setup)
 
     def _prompt_whatsapp_setup(self):
@@ -1483,21 +1702,24 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
+        # ── WhatsApp (todos los roles) ────────────────────────────────────────
+        wa_section = QLabel("WHATSAPP")
+        wa_section.setStyleSheet(f"color: {SUBTEXT}; font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 4px 8px 2px 8px;")
+        layout.addWidget(wa_section)
+
+        btn_wa = QPushButton("📱  WhatsApp")
+        btn_wa.setObjectName("whatsapp")
         if self._is_admin:
-            # ── WhatsApp ──────────────────────────────────────────────────────
-            wa_section = QLabel("WHATSAPP")
-            wa_section.setStyleSheet(f"color: {SUBTEXT}; font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 4px 8px 2px 8px;")
-            layout.addWidget(wa_section)
-
-            btn_wa = QPushButton("📱  WhatsApp")
-            btn_wa.setObjectName("whatsapp")
             btn_wa.clicked.connect(self._open_whatsapp_config)
-            layout.addWidget(btn_wa)
+        else:
+            btn_wa.clicked.connect(self._open_whatsapp_view)
+        layout.addWidget(btn_wa)
 
-            self.wa_status = QLabel()
-            self._refresh_wa_status()
-            layout.addWidget(self.wa_status)
+        self.wa_status = QLabel()
+        self._refresh_wa_status()
+        layout.addWidget(self.wa_status)
 
+        if self._is_admin:
             # ── Configuración ─────────────────────────────────────────────────
             config_section = QLabel("CONFIGURACIÓN")
             config_section.setStyleSheet(f"color: {SUBTEXT}; font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 4px 8px 2px 8px; margin-top: 8px;")
@@ -1527,12 +1749,6 @@ class MainWindow(QMainWindow):
             btn_bot_config.setObjectName("primary")
             btn_bot_config.clicked.connect(self._manage_bot_config)
             layout.addWidget(btn_bot_config)
-
-            btn_pull = QPushButton("📥  Sync desde Móvil")
-            btn_pull.setObjectName("primary")
-            btn_pull.clicked.connect(self._pull_from_firestore)
-            layout.addWidget(btn_pull)
-            self._btn_pull = btn_pull
 
             btn_firmas = QPushButton("✍️  Firmas PDF")
             btn_firmas.setObjectName("primary")
@@ -1569,6 +1785,15 @@ class MainWindow(QMainWindow):
         self._wa_dialog.show()
         self._wa_dialog.raise_()
         self._wa_dialog.activateWindow()
+        self._refresh_wa_status()
+
+    def _open_whatsapp_view(self):
+        """Abre el diálogo de WhatsApp para vendedores (sin editar número admin)."""
+        if not hasattr(self, '_wa_view_dialog') or self._wa_view_dialog is None:
+            self._wa_view_dialog = WhatsAppViewDialog(self)
+        self._wa_view_dialog.show()
+        self._wa_view_dialog.raise_()
+        self._wa_view_dialog.activateWindow()
         self._refresh_wa_status()
 
     def _change_watermark(self):
@@ -1880,104 +2105,226 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _manage_bot_config(self):
-        from agent.bot import get_bot_config, save_bot_config
         dlg = QDialog(self)
-        dlg.setWindowTitle("Config Bot - Menu Cotizaciones")
-        dlg.setMinimumSize(480, 420)
+        dlg.setWindowTitle("Config Bot")
+        dlg.setMinimumSize(780, 600)
+        dlg.resize(820, 660)
         dlg.setStyleSheet(QSS)
 
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
 
-        title = QLabel("⚙️  Opciones del Menu de Cotizaciones")
+        title = QLabel("⚙️  Configuración del Bot")
         title.setStyleSheet(f"color: {TEXT}; font-size: 18px; font-weight: 700;")
         layout.addWidget(title)
 
-        info = QLabel(
-            "Estas son las opciones que el cliente vera cuando solicite una cotizacion.\n"
-            "Puedes agregar, editar o eliminar segun el tipo de negocio."
-        )
-        info.setStyleSheet(f"color: {SUBTEXT}; font-size: 12px;")
+        # ── Tabs ──────────────────────────────────────────────────────────────
+        from PyQt6.QtWidgets import QTabWidget
+        tabs = QTabWidget()
+        tabs.setStyleSheet(f"""
+            QTabWidget::pane {{ border: 1px solid {BORDER}; border-radius: 10px; background: {CARD}; }}
+            QTabBar::tab {{ background: {SIDEBAR}; color: {SUBTEXT}; padding: 8px 18px;
+                           border-radius: 8px 8px 0 0; font-size: 13px; }}
+            QTabBar::tab:selected {{ background: {ACCENT2}; color: white; font-weight: 600; }}
+        """)
+
+        # ── Tab Cupones ───────────────────────────────────────────────────────
+        tab_cup = QWidget()
+        cup_layout = QVBoxLayout(tab_cup)
+        cup_layout.setContentsMargins(16, 16, 16, 16)
+        cup_layout.setSpacing(10)
+
+        from agent.coupons import list_coupons, add_coupon, delete_coupon, toggle_coupon
+
+        cup_table = QTableWidget(0, 7)
+        cup_table.setHorizontalHeaderLabels(["Código", "Tipo", "Valor", "Mín.", "Vence", "Usos", ""])
+        cup_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        cup_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+        cup_table.setColumnWidth(1, 70); cup_table.setColumnWidth(2, 90)
+        cup_table.setColumnWidth(3, 80); cup_table.setColumnWidth(4, 90)
+        cup_table.setColumnWidth(5, 60); cup_table.setColumnWidth(6, 70)
+        cup_table.verticalHeader().setVisible(False)
+        cup_table.verticalHeader().setDefaultSectionSize(42)
+        cup_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        cup_layout.addWidget(cup_table, 1)
+
+        def refresh_cups():
+            coupons = list_coupons(self._profile_id)
+            cup_table.setRowCount(len(coupons))
+            for i, c in enumerate(coupons):
+                val_txt  = f"{c['value']:.0f}%" if c["type"] == "percent" else f"${c['value']:,.0f}"
+                min_txt  = f"${c['min_total']:,.0f}" if c.get("min_total", 0) > 0 else "—"
+                exp_txt  = c.get("expires_at", "") or "∞"
+                max_u    = c.get("max_uses", 0)
+                uses_txt = f"{c.get('uses',0)}/{max_u}" if max_u > 0 else f"{c.get('uses',0)}/∞"
+
+                # Color rojo si venció
+                from datetime import date
+                vencido = False
+                if c.get("expires_at"):
+                    try:
+                        vencido = date.today() > date.fromisoformat(c["expires_at"])
+                    except ValueError:
+                        pass
+
+                code_item = QTableWidgetItem(c["code"])
+                code_item.setForeground(QColor(DANGER if vencido else (SUCCESS if c["active"] else SUBTEXT)))
+                cup_table.setItem(i, 0, code_item)
+                cup_table.setItem(i, 1, QTableWidgetItem("% desc" if c["type"] == "percent" else "Fijo"))
+                cup_table.setItem(i, 2, QTableWidgetItem(val_txt))
+                cup_table.setItem(i, 3, QTableWidgetItem(min_txt))
+                exp_item = QTableWidgetItem(exp_txt)
+                if vencido:
+                    exp_item.setForeground(QColor(DANGER))
+                cup_table.setItem(i, 4, exp_item)
+                cup_table.setItem(i, 5, QTableWidgetItem(uses_txt))
+
+                btn_w = QWidget()
+                btn_l = QHBoxLayout(btn_w)
+                btn_l.setContentsMargins(2, 2, 2, 2); btn_l.setSpacing(4)
+
+                btn_tog = QPushButton("✅" if c["active"] else "⏸")
+                btn_tog.setFixedSize(28, 28)
+                btn_tog.setStyleSheet(f"background:{'#16A34A' if c['active'] else SUBTEXT};color:white;border:none;border-radius:4px;font-size:11px;")
+                btn_tog.clicked.connect(lambda _, code=c["code"]: (toggle_coupon(self._profile_id, code), refresh_cups()))
+
+                btn_del = QPushButton("🗑")
+                btn_del.setFixedSize(28, 28)
+                btn_del.setStyleSheet(f"background:{DANGER};color:white;border:none;border-radius:4px;font-size:11px;")
+                btn_del.clicked.connect(lambda _, code=c["code"]: (delete_coupon(self._profile_id, code), refresh_cups()))
+
+                btn_l.addWidget(btn_tog)
+                btn_l.addWidget(btn_del)
+                cup_table.setCellWidget(i, 6, btn_w)
+
+        # Formulario agregar cupón
+        form_card = QWidget(); form_card.setObjectName("card")
+        fc = QVBoxLayout(form_card); fc.setContentsMargins(14, 12, 14, 12); fc.setSpacing(10)
+
+        lbl_nuevo = QLabel("Nuevo Cupón")
+        lbl_nuevo.setStyleSheet(f"color:{TEXT};font-size:13px;font-weight:700;")
+        fc.addWidget(lbl_nuevo)
+
+        # Fila 1: Código | Tipo | Valor
+        row1 = QHBoxLayout(); row1.setSpacing(12)
+
+        col_code = QVBoxLayout()
+        col_code.addWidget(QLabel("Código:"))
+        code_input = QLineEdit()
+        code_input.setPlaceholderText("Ej: PROMO20")
+        col_code.addWidget(code_input)
+
+        col_type = QVBoxLayout()
+        col_type.addWidget(QLabel("Tipo:"))
+        type_cb = QComboBox()
+        type_cb.addItems(["%  Porcentaje", "$  Monto fijo"])
+        type_cb.setFixedWidth(130)
+        col_type.addWidget(type_cb)
+
+        col_val = QVBoxLayout()
+        col_val.addWidget(QLabel("Valor:"))
+        val_spin = QDoubleSpinBox()
+        val_spin.setRange(0.01, 99999999); val_spin.setDecimals(0)
+        val_spin.setValue(10); val_spin.setFixedWidth(100)
+        col_val.addWidget(val_spin)
+
+        row1.addLayout(col_code, 2)
+        row1.addLayout(col_type)
+        row1.addLayout(col_val)
+        fc.addLayout(row1)
+
+        # Fila 2: Mínimo | Máx usos | Fecha límite
+        row2 = QHBoxLayout(); row2.setSpacing(12)
+
+        col_min = QVBoxLayout()
+        col_min.addWidget(QLabel("Compra mínima ($):"))
+        min_spin = QDoubleSpinBox()
+        min_spin.setRange(0, 99999999); min_spin.setDecimals(0)
+        min_spin.setValue(0); min_spin.setPrefix("$ ")
+        col_min.addWidget(min_spin)
+
+        col_max = QVBoxLayout()
+        col_max.addWidget(QLabel("Máx. usos (0 = ∞):"))
+        max_spin = QSpinBox()
+        max_spin.setRange(0, 99999); max_spin.setValue(0)
+        max_spin.setFixedWidth(100); max_spin.setSpecialValueText("∞ ilimitado")
+        col_max.addWidget(max_spin)
+
+        col_exp = QVBoxLayout()
+        col_exp.addWidget(QLabel("Fecha límite:"))
+        from PyQt6.QtWidgets import QDateEdit
+        from PyQt6.QtCore import QDate
+        date_row = QHBoxLayout(); date_row.setSpacing(6)
+        date_edit = QDateEdit()
+        date_edit.setDisplayFormat("yyyy-MM-dd")
+        date_edit.setCalendarPopup(True)
+        date_edit.setDate(QDate.currentDate().addMonths(1))
+        date_edit.setFixedWidth(120)
+        date_edit.setEnabled(False)
+        chk_exp = QPushButton("∞ Sin límite")
+        chk_exp.setCheckable(True); chk_exp.setChecked(True)
+        chk_exp.setFixedHeight(30); chk_exp.setFixedWidth(100)
+        chk_exp.setStyleSheet(f"""
+            QPushButton {{ background:{SIDEBAR}; color:{SUBTEXT}; border:1px solid {BORDER};
+                          border-radius:8px; padding:4px 8px; font-size:12px; }}
+            QPushButton:checked {{ background:{ACCENT2}; color:white; border:none; }}
+        """)
+        def _toggle_date(checked):
+            date_edit.setEnabled(not checked)
+            chk_exp.setText("∞ Sin límite" if checked else "📅 Con fecha")
+        chk_exp.toggled.connect(_toggle_date)
+        date_row.addWidget(date_edit)
+        date_row.addWidget(chk_exp)
+        col_exp.addLayout(date_row)
+
+        row2.addLayout(col_min)
+        row2.addLayout(col_max)
+        row2.addLayout(col_exp)
+        fc.addLayout(row2)
+
+        # Botón agregar
+        btn_add_cup = QPushButton("＋  Agregar Cupón")
+        btn_add_cup.setObjectName("primary")
+        btn_add_cup.setFixedHeight(36)
+        fc.addWidget(btn_add_cup)
+
+        def add_cup():
+            code = code_input.text().strip().upper()
+            if not code:
+                QMessageBox.warning(dlg, "Error", "Escribe un código para el cupón.")
+                return
+            ctype    = "percent" if type_cb.currentIndex() == 0 else "fixed"
+            exp_str  = "" if chk_exp.isChecked() else date_edit.date().toString("yyyy-MM-dd")
+            result   = add_coupon(self._profile_id, code, ctype,
+                                  val_spin.value(), min_spin.value(),
+                                  max_spin.value(), exp_str)
+            if not result["ok"]:
+                QMessageBox.warning(dlg, "Error", result["msg"])
+                return
+            code_input.clear()
+            val_spin.setValue(10); min_spin.setValue(0); max_spin.setValue(0)
+            chk_exp.setChecked(True)
+            refresh_cups()
+
+        btn_add_cup.clicked.connect(add_cup)
+        code_input.returnPressed.connect(add_cup)
+        cup_layout.addWidget(form_card)
+
+        info = QLabel("💡 El cliente escribe el código en el chat del bot para aplicar el descuento a su pedido.")
+        info.setStyleSheet(f"color: {SUBTEXT}; font-size: 11px;")
         info.setWordWrap(True)
-        layout.addWidget(info)
+        cup_layout.addWidget(info)
 
-        config = get_bot_config(self._profile_id)
-        opciones = list(config.get("cotizacion_opciones", []))
+        tabs.addTab(tab_cup, "🎟  Cupones")
+        layout.addWidget(tabs, 1)
 
-        list_widget = QTableWidget(0, 2)
-        list_widget.setHorizontalHeaderLabels(["Opcion", ""])
-        list_widget.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        list_widget.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        list_widget.setColumnWidth(1, 50)
-        list_widget.verticalHeader().setVisible(False)
-        list_widget.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        list_widget.verticalHeader().setDefaultSectionSize(50)
-        list_widget.setMinimumHeight(160)
-        layout.addWidget(list_widget, 1)
+        btn_close = QPushButton("Cerrar")
+        btn_close.setObjectName("primary")
+        btn_close.clicked.connect(dlg.accept)
+        layout.addWidget(btn_close)
 
-        def refresh():
-            list_widget.setRowCount(len(opciones))
-            for i, op in enumerate(opciones):
-                list_widget.setItem(i, 0, QTableWidgetItem(op))
-                btn_del = QPushButton("X")
-                btn_del.setFixedSize(32, 26)
-                btn_del.setStyleSheet(f"background:{DANGER};color:white;border:none;border-radius:3px;font-size:11px;font-weight:700;")
-                btn_del.clicked.connect(lambda _, idx=i: remove_opcion(idx))
-                cell = QWidget()
-                cl = QHBoxLayout(cell)
-                cl.setContentsMargins(4, 4, 4, 4)
-                cl.addWidget(btn_del)
-                list_widget.setCellWidget(i, 1, cell)
-
-        def remove_opcion(idx):
-            opciones.pop(idx)
-            refresh()
-
-        add_row = QHBoxLayout()
-        new_input = QLineEdit()
-        new_input.setPlaceholderText("Ej: Plomeria, Electricidad, Carpinteria...")
-        btn_add = QPushButton("+ Agregar")
-        btn_add.setObjectName("primary")
-        btn_add.setFixedHeight(34)
-
-        def add_opcion():
-            text = new_input.text().strip()
-            if not text:
-                return
-            opciones.append(text)
-            new_input.clear()
-            refresh()
-
-        btn_add.clicked.connect(add_opcion)
-        new_input.returnPressed.connect(add_opcion)
-        add_row.addWidget(new_input, 1)
-        add_row.addWidget(btn_add)
-        layout.addLayout(add_row)
-
-        btns = QHBoxLayout()
-        btn_cancel = QPushButton("Cancelar")
-        btn_cancel.setObjectName("danger")
-        btn_cancel.clicked.connect(dlg.reject)
-        btn_save = QPushButton("💾  Guardar")
-        btn_save.setObjectName("primary")
-
-        def save():
-            if not opciones:
-                QMessageBox.warning(dlg, "Error", "Debe haber al menos una opcion.")
-                return
-            config["cotizacion_opciones"] = opciones
-            save_bot_config(self._profile_id, config)
-            dlg.accept()
-            QMessageBox.information(self, "Guardado", "✅ Menu de cotizaciones actualizado.")
-
-        btn_save.clicked.connect(save)
-        btns.addWidget(btn_cancel)
-        btns.addStretch()
-        btns.addWidget(btn_save)
-        layout.addLayout(btns)
-
-        refresh()
+        refresh_cups()
         dlg.exec()
 
     def _manage_manuals(self):
@@ -2356,24 +2703,25 @@ class MainWindow(QMainWindow):
         card3, self.stat_low  = make_stat_card("⚠️", "Stock Bajo", "0", WARNING)
         card4, self.stat_out  = make_stat_card("❌", "Sin Stock", "0", DANGER)
         card5, self.stat_bot  = make_stat_card("🤖", "Estado Bot", "Activo", SUCCESS)
-        card6, self.stat_msgs = make_stat_card("💬", "Mensajes Hoy", "—", ACCENT)
 
-        self._slider = CardsSlider([card1, card2, card3, card4, card5, card6])
+        self._slider = CardsSlider([card1, card2, card3, card4, card5])
         self._slider.setVisible(False)
         self.content_layout.addWidget(self._slider)
 
         # Tabla de inventario
         self._table = QTableWidget()
-        self._table.setColumnCount(7)
-        self._table.setHorizontalHeaderLabels(["Foto", "SKU", "Nombre", "Categoría", "Precio", "Stock", "Acciones"])
+        self._table.setColumnCount(9)
+        self._table.setHorizontalHeaderLabels(["Foto", "SKU", "Nombre", "Categoría", "Costo", "Venta", "Rentab.", "Stock", "Acciones"])
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-        self._table.setColumnWidth(0, 64)
-        self._table.setColumnWidth(1, 110)
-        self._table.setColumnWidth(3, 110)
+        self._table.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
+        self._table.setColumnWidth(0, 58)
+        self._table.setColumnWidth(1, 100)
+        self._table.setColumnWidth(3, 105)
         self._table.setColumnWidth(4, 90)
-        self._table.setColumnWidth(5, 80)
-        self._table.setColumnWidth(6, 140)
+        self._table.setColumnWidth(5, 90)
+        self._table.setColumnWidth(6, 110)
+        self._table.setColumnWidth(7, 65)
+        self._table.setColumnWidth(8, 110)
         self._table.verticalHeader().setDefaultSectionSize(56)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -2382,7 +2730,31 @@ class MainWindow(QMainWindow):
         self._table.setStyleSheet(self._table.styleSheet() + f"""
             QTableWidget {{ alternate-background-color: {SIDEBAR}; }}
         """)
+
+        # Barra de totales de inventario
+        self._inv_totals_bar = QWidget()
+        self._inv_totals_bar.setObjectName("card")
+        self._inv_totals_bar.setVisible(False)
+        itb_layout = QHBoxLayout(self._inv_totals_bar)
+        itb_layout.setContentsMargins(16, 10, 16, 10)
+        itb_layout.setSpacing(32)
+        self._lbl_total_units = QLabel("Total unidades: —")
+        self._lbl_total_units.setStyleSheet(f"color:{TEXT};font-size:13px;font-weight:600;")
+        self._lbl_total_cost = QLabel("Costo total: —")
+        self._lbl_total_cost.setStyleSheet(f"color:{WARNING};font-size:13px;font-weight:600;")
+        self._lbl_total_profit = QLabel("Ganancia potencial: —")
+        self._lbl_total_profit.setStyleSheet(f"color:{SUCCESS};font-size:13px;font-weight:600;")
+        itb_layout.addWidget(self._lbl_total_units)
+        itb_layout.addWidget(self._lbl_total_cost)
+        itb_layout.addWidget(self._lbl_total_profit)
+        itb_layout.addStretch()
+        self.content_layout.addWidget(self._inv_totals_bar)
         self.content_layout.addWidget(self._table)
+        self._table.setShowGrid(True)
+        self._table.setStyleSheet(self._table.styleSheet() + f"""
+            QTableWidget {{ alternate-background-color: {SIDEBAR}; }}
+            QTableCornerButton::section {{ background: {SIDEBAR}; }}
+        """)
 
         # Vista de ventas (oculta por defecto)
         self._sales_widget = QWidget()
@@ -2413,13 +2785,13 @@ class MainWindow(QMainWindow):
         )
         self._sales_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self._sales_table.setColumnWidth(0, 130)
-        self._sales_table.setColumnWidth(1, 110)
-        self._sales_table.setColumnWidth(2, 120)
-        self._sales_table.setColumnWidth(3, 90)
-        self._sales_table.setColumnWidth(5, 90)
-        self._sales_table.setColumnWidth(6, 70)
-        self._sales_table.setColumnWidth(7, 50)
-        self._sales_table.setColumnWidth(8, 50)
+        self._sales_table.setColumnWidth(1, 120)
+        self._sales_table.setColumnWidth(2, 140)
+        self._sales_table.setColumnWidth(3, 80)
+        self._sales_table.setColumnWidth(5, 85)
+        self._sales_table.setColumnWidth(6, 60)
+        self._sales_table.setColumnWidth(7, 44)
+        self._sales_table.setColumnWidth(8, 44)
         self._sales_table.verticalHeader().setDefaultSectionSize(40)
         self._sales_table.verticalHeader().setVisible(False)
         self._sales_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -2512,6 +2884,7 @@ class MainWindow(QMainWindow):
             self._add_btn.clicked.connect(self._add_product)
             self._add_btn.setVisible(page != "Dashboard")
             self._table.setVisible(page in ("Inventario", "Stock Bajo"))
+            self._inv_totals_bar.setVisible(page in ("Inventario", "Stock Bajo"))
             self._sales_widget.setVisible(False)
             if page == "Stock Bajo":
                 self._populate_table(low_stock_products(self._profile_id, 15))
@@ -2536,6 +2909,58 @@ class MainWindow(QMainWindow):
             self._populate_table(products)
         elif page == "Stock Bajo":
             self._populate_table(low_stock_products(self._profile_id, 15))
+        # Notificar al admin si hay productos con stock bajo o sin stock
+        self._check_stock_alerts(products)
+
+    def _check_stock_alerts(self, products: list):
+        """Notifica al admin cuando un producto baja a stock bajo o se agota."""
+        first_load = not hasattr(self, '_last_stock_state')
+
+        if first_load:
+            # Primera carga: solo guardar estado, NO notificar para evitar spam al abrir la app
+            self._last_stock_state = {
+                p['sku']: int(p.get('stock', 0)) for p in products
+            }
+            alerts_agotado = []
+            alerts_bajo    = []
+        else:
+            alerts_bajo    = []
+            alerts_agotado = []
+
+            for p in products:
+                sku   = p['sku']
+                stock = int(p.get('stock', 0))
+                # Si el producto es nuevo (no estaba antes), asumir prev = 9999
+                prev  = self._last_stock_state.get(sku, 9999)
+
+                if stock == 0 and prev > 0:
+                    alerts_agotado.append(p['name'])
+                elif 0 < stock <= 15 and prev > 15:
+                    alerts_bajo.append(f"{p['name']} ({stock} und)")
+
+            # Actualizar estado
+            self._last_stock_state = {
+                p['sku']: int(p.get('stock', 0)) for p in products
+            }
+
+        if not alerts_bajo and not alerts_agotado:
+            return
+
+        lines = ["⚠️ *Alerta de inventario*\n"]
+        if alerts_agotado:
+            lines.append("❌ *Sin stock:*")
+            for name in alerts_agotado:
+                lines.append(f"  • {name}")
+        if alerts_bajo:
+            if alerts_agotado:
+                lines.append("")
+            lines.append("🔶 *Stock bajo (≤15 und):*")
+            for name in alerts_bajo:
+                lines.append(f"  • {name}")
+        lines.append("\nRevisa el inventario para reabastecer.")
+        msg = "\n".join(lines)
+        print(f"[Stock Alert] {'Primera carga —' if first_load else ''} Enviando: {len(alerts_agotado)} agotados, {len(alerts_bajo)} bajos")
+        _notify_all_admins(msg)
 
     def _update_stats(self, products: list):
         total = len(products)
@@ -2607,10 +3032,10 @@ class MainWindow(QMainWindow):
         # Estadísticas totales (todos los tiempos)
         total_all = sum(r.get("total", 0) for r in all_records)
         
-        self.stat_sales_total.setText(f"${total_hoy:.0f}")
+        self.stat_sales_total.setText(f"${total_hoy:,.0f}")
         self.stat_sales_count.setText(str(len(today_recs)))
         self.stat_sales_wa.setText(str(wa_count))
-        self.stat_sales_all_total.setText(f"${total_all:.0f}")
+        self.stat_sales_all_total.setText(f"${total_all:,.0f}")
         self.stat_sales_all_count.setText(str(len(all_records)))
 
         self._sales_table.setRowCount(len(all_records))
@@ -2620,7 +3045,7 @@ class MainWindow(QMainWindow):
             items = rec.get("items", [])
             items_txt = ", ".join(f"{i.get('product_name','')} x{i.get('quantity',1)}" for i in items)
             total_val = rec.get("total", 0)
-            total_item = QTableWidgetItem(f"${total_val:.2f}")
+            total_item = QTableWidgetItem(f"${total_val:,.0f}")
             total_item.setForeground(QColor(SUCCESS))
             self._sales_table.setItem(row, 0, QTableWidgetItem(rec.get("timestamp", "")))
             self._sales_table.setItem(row, 1, QTableWidgetItem(rec.get("invoice_id", "")))
@@ -2716,6 +3141,7 @@ class MainWindow(QMainWindow):
                 self._show_sales_view()
                 self._load_products()
                 self._sync_firestore()
+                self._notify_admin_sale(inv_dict)
             except Exception as e:
                 _msg(self, "Error", str(e))
 
@@ -2798,14 +3224,40 @@ class MainWindow(QMainWindow):
                         update_product(self._profile_id, item.sku, {"stock": int(p["stock"]) - item.quantity})
                 self._show_sales_view()
                 self._load_products()
+                self._sync_firestore()  # sincronizar venta e inventario a Firestore
+                self._notify_admin_sale(invoice.dict())
             except Exception as e:
                 import traceback; traceback.print_exc()
                 _msg(self, "Error", str(e))
 
     # ── Tabla inventario ─────────────────────────────────────────────────────────────
     def _populate_table(self, products: list):
+        self._table.setRowCount(0)
+        if not products:
+            self._table.setRowCount(1)
+            empty = QTableWidgetItem("Sin productos para mostrar")
+            empty.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty.setForeground(QColor(SUBTEXT))
+            self._table.setItem(0, 2, empty)
+            self._table.setSpan(0, 0, 1, 7)
+            return
+        self._table.setSpan(0, 0, 1, 1)  # reset span
         self._table.setRowCount(len(products))
+        total_units = 0
+        total_cost_val = 0.0
+        total_profit_val = 0.0
+
         for row, p in enumerate(products):
+            stock = int(p["stock"])
+            price = float(p.get("price", 0))
+            cost = float(p.get("cost_price", 0))
+            margin = price - cost
+            margin_pct = (margin / cost * 100) if cost > 0 else 0.0
+
+            total_units += stock
+            total_cost_val += cost * stock
+            total_profit_val += margin * stock
+
             # Foto
             img_lbl = QLabel()
             img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2824,9 +3276,25 @@ class MainWindow(QMainWindow):
             self._table.setItem(row, 1, QTableWidgetItem(p["sku"]))
             self._table.setItem(row, 2, QTableWidgetItem(p["name"]))
             self._table.setItem(row, 3, QTableWidgetItem(p.get("category", "")))
-            self._table.setItem(row, 4, QTableWidgetItem(f"${p['price']:.2f}"))
 
-            stock = int(p["stock"])
+            cost_item = QTableWidgetItem(f"${cost:,.0f}" if cost > 0 else "—")
+            cost_item.setForeground(QColor(WARNING))
+            self._table.setItem(row, 4, cost_item)
+
+            price_item = QTableWidgetItem(f"${price:,.0f}")
+            price_item.setForeground(QColor(ACCENT2))
+            self._table.setItem(row, 5, price_item)
+
+            if cost > 0:
+                rentab_txt = f"+${margin:,.0f}  ({margin_pct:.0f}%)"
+                rentab_color = SUCCESS if margin >= 0 else DANGER
+            else:
+                rentab_txt = "—"
+                rentab_color = SUBTEXT
+            rentab_item = QTableWidgetItem(rentab_txt)
+            rentab_item.setForeground(QColor(rentab_color))
+            self._table.setItem(row, 6, rentab_item)
+
             stock_item = QTableWidgetItem(str(stock))
             if stock == 0:
                 stock_item.setForeground(QColor(DANGER))
@@ -2834,7 +3302,7 @@ class MainWindow(QMainWindow):
                 stock_item.setForeground(QColor(WARNING))
             else:
                 stock_item.setForeground(QColor(SUCCESS))
-            self._table.setItem(row, 5, stock_item)
+            self._table.setItem(row, 7, stock_item)
 
             # Botones acciones
             btn_widget = QWidget()
@@ -2855,7 +3323,13 @@ class MainWindow(QMainWindow):
             del_btn.clicked.connect(lambda _, s=p["sku"]: self._delete_product(s))
             btn_layout.addWidget(edit_btn)
             btn_layout.addWidget(del_btn)
-            self._table.setCellWidget(row, 6, btn_widget)
+            self._table.setCellWidget(row, 8, btn_widget)
+
+        # Actualizar barra de totales
+        self._lbl_total_units.setText(f"Total unidades: {total_units:,}")
+        self._lbl_total_cost.setText(f"Costo total: ${total_cost_val:,.0f}")
+        self._lbl_total_profit.setText(f"Ganancia potencial: ${total_profit_val:,.0f}")
+        self._inv_totals_bar.setVisible(True)
 
     def _filter_table(self, text: str):
         q = text.lower()
@@ -2864,33 +3338,30 @@ class MainWindow(QMainWindow):
         self._populate_table(filtered)
 
     # ── CRUD ──────────────────────────────────────────────────────────────────
-    def _pull_from_firestore(self):
-        self._btn_pull.setEnabled(False)
-        self._btn_pull.setText("⏳  Sincronizando...")
-        from agent.firestore_sync import PullWorker
-        self._pull_worker = PullWorker(self._profile_id)
-        self._pull_worker.done.connect(self._on_pull_done)
-        self._pull_worker.start()
-
-    def _on_pull_done(self, ok: bool, msg: str, changes: list):
-        self._btn_pull.setEnabled(True)
-        self._btn_pull.setText("📥  Sync desde Móvil")
-        self._load_products()
-        # Si hay ventas nuevas y estamos en la vista de ventas, refrescar
-        page = getattr(self, "_current_page", "Dashboard")
-        if page == "Ventas":
-            self._show_sales_view()
-        if changes:
-            detail = "\n".join(changes)
-            QMessageBox.information(self, "Sync completado", f"{msg}\n\n{detail}")
-        else:
-            QMessageBox.information(self, "Sync completado", msg)
-
     def _sync_firestore(self):
         from agent.firestore_sync import SyncWorker
         self._fw = SyncWorker(self._profile_id)
         self._fw.done.connect(lambda ok, msg: print(f"[Sync] {msg}"))
         self._fw.start()
+
+    def _notify_admin_sale(self, invoice_dict: dict):
+        """Notifica a todos los admins por WhatsApp cuando se registra una venta."""
+        items = invoice_dict.get("items", [])
+        items_txt = "\n".join(
+            f"  • {i.get('product_name', '')} x{i.get('quantity', 1)} = ${i.get('subtotal', 0):.2f}"
+            for i in items
+        )
+        customer = invoice_dict.get("customer") or "Consumidor final"
+        total    = invoice_dict.get("total", 0)
+        inv_id   = invoice_dict.get("invoice_id", "")
+        msg = (
+            f"🛒 *Nueva venta registrada*\n"
+            f"ID: {inv_id}\n"
+            f"Cliente: {customer}\n"
+            f"{items_txt}\n"
+            f"*Total: ${total:.2f}*"
+        )
+        _notify_all_admins(msg)
 
     def _add_product(self):
         if not self._is_admin:
@@ -2933,6 +3404,7 @@ class MainWindow(QMainWindow):
                 p.image_url = str(dest)
             update_product(self._profile_id, sku, {
                 "stock": p.stock, "price": p.price,
+                "cost_price": p.cost_price,
                 "description": p.description, "name": p.name,
                 "category": p.category, "image_url": p.image_url
             })
@@ -2979,6 +3451,7 @@ class AppController(QStackedWidget):
 
         self._login = LoginScreen()
         self._manager = ProfileManagerScreen()
+        self._main = None
         self.addWidget(self._login)    # index 0
         self.addWidget(self._manager) # index 1
 
@@ -2995,12 +3468,54 @@ class AppController(QStackedWidget):
         self._main.logout.connect(self._on_logout)
         self.addWidget(self._main)
         self.setCurrentWidget(self._main)
+        # Inicializar Firebase una sola vez antes de arrancar workers
+        try:
+            from agent.firestore_sync import _get_data_app
+            _get_data_app()
+        except Exception as e:
+            print(f"[Firebase] Error init: {e}")
         # Sync inmediato al login
         self._do_sync(session["profile_id"])
+        # Sincronizar usuarios del perfil a Firestore
+        try:
+            from agent.profiles import get_profile
+            import firebase_admin
+            from agent.firestore_sync import _get_data_app
+            _app = _get_data_app()
+            from firebase_admin import firestore as _fs
+            _db = _fs.client(app=_app)
+            _profile = get_profile(session["profile_id"])
+            if _profile:
+                users_data = [{"username": u["username"], "password_hash": u["password_hash"], "role": u["role"]} for u in _profile.get("users", [])]
+                _db.collection("profiles").document(session["profile_id"]).set(
+                    {"users": users_data, "name": _profile["name"], "id": session["profile_id"], "key": session.get("key", "")},
+                    merge=True
+                )
+                print(f"[Users] {len(users_data)} usuarios sincronizados a Firestore.")
+        except Exception as _ue:
+            print(f"[Users] Error sincronizando usuarios: {_ue}")
+        # Importar clientes desde ventas históricas (silencioso, solo agrega nuevos)
+        try:
+            from agent.local_customers import import_from_sales
+            n = import_from_sales(session["profile_id"])
+            if n:
+                print(f"[Customers] {n} clientes importados desde ventas.")
+        except Exception as e:
+            print(f"[Customers] Error importando: {e}")
         # Sync automático cada 5 minutos
         self._sync_timer = QTimer()
         self._sync_timer.timeout.connect(lambda: self._do_sync(session["profile_id"]))
         self._sync_timer.start(5 * 60 * 1000)
+        # Listener en tiempo real para ventas del móvil (arranca 3s después del sync)
+        from agent.firestore_sync import FirestoreListener
+        self._fs_listener = FirestoreListener(session["profile_id"])
+        self._fs_listener.new_sale.connect(self._on_mobile_sale)
+        QTimer.singleShot(3000, self._fs_listener.start)
+        # Listener en tiempo real para inventario (productos creados/editados/borrados desde el móvil)
+        from agent.firestore_listener import FirestoreListener as InventoryListener
+        self._inv_listener = InventoryListener(session["profile_id"], parent=self)
+        self._inv_listener.product_changed.connect(self._on_inventory_changed)
+        QTimer.singleShot(3500, self._inv_listener.start)
 
     def _do_sync(self, profile_id: str):
         from agent.firestore_sync import SyncWorker
@@ -3008,21 +3523,85 @@ class AppController(QStackedWidget):
         self._sync.done.connect(lambda ok, msg: print(f"[Sync] {msg}"))
         self._sync.start()
 
+    def _on_mobile_sale(self, inv_json: str):
+        """Refresca cuando llega una venta nueva o eliminada desde el móvil."""
+        import json
+        try:
+            inv = json.loads(inv_json)
+        except Exception:
+            inv = {}
+        # Tanto ADDED como REMOVED requieren refrescar productos y ventas
+        self._main._load_products()
+        page = getattr(self._main, "_current_page", "Dashboard")
+        if page == "Ventas":
+            self._main._show_sales_view()
+        elif "__deleted__" in inv:
+            # Si está en otra vista, igual refrescar ventas en background
+            self._main._show_sales_view()
+
+    def _on_inventory_changed(self):
+        """Refresca inventario cuando llega un cambio desde el móvil.
+        Debounce 1.5s: evita crear un QThread por cada producto del snapshot
+        inicial (47 emits seguidos = stack overflow nativo)."""
+        if not self._main:
+            return
+        if not hasattr(self, '_inv_debounce_timer'):
+            self._inv_debounce_timer = QTimer()
+            self._inv_debounce_timer.setSingleShot(True)
+            self._inv_debounce_timer.timeout.connect(self._do_inventory_reload)
+        self._inv_debounce_timer.start(1500)
+
+    def _do_inventory_reload(self):
+        if not self._main:
+            return
+        print("[InventoryListener] Cambio detectado — refrescando UI")
+        self._main._load_products()
+
     def _on_logout(self):
+        # Detener debounce timer primero
+        if hasattr(self, '_inv_debounce_timer') and self._inv_debounce_timer:
+            self._inv_debounce_timer.stop()
+        # Desconectar señales del inventory listener antes de destruir
+        if hasattr(self, '_inv_listener') and self._inv_listener:
+            try:
+                self._inv_listener.product_changed.disconnect()
+            except Exception:
+                pass
+            self._inv_listener.stop()
+            self._inv_listener = None
         if hasattr(self, '_sync_timer') and self._sync_timer:
             self._sync_timer.stop()
+            self._sync_timer = None
+        if hasattr(self, '_fs_listener') and self._fs_listener:
+            try:
+                self._fs_listener.new_sale.disconnect()
+            except Exception:
+                pass
+            self._fs_listener.stop()
+            self._fs_listener.quit()
+            self._fs_listener.wait(2000)
+            self._fs_listener = None
+        if hasattr(self, '_sync') and self._sync and self._sync.isRunning():
+            self._sync.wait(2000)
         old = self._main
+        self._main = None
         self._login._refresh_profiles()
         self._login.username_input.clear()
         self._login.password_input.clear()
         self._login.error_lbl.setText("")
         self.setCurrentIndex(0)
         self.removeWidget(old)
-        old.deleteLater()
-        self._main = None
+        old.hide()
+        QTimer.singleShot(500, old.deleteLater)
 
 
 if __name__ == "__main__":
+    import sys
+    if getattr(sys, "frozen", False):
+        log_path = Path(sys.executable).parent / "crash_log.txt"
+        sys.stderr = open(str(log_path), "w", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stderr
+
     # Iniciar servidor FastAPI en background
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()

@@ -307,6 +307,12 @@ class LoginScreen(QWidget):
         if result:
             profile = get_profile(profile_id)
             result["profile_name"] = profile["name"]
+            # Incluir key de licencia para sincronizar a Firestore
+            try:
+                from lic_manager.license_manager import _load_local
+                result["key"] = _load_local().get("key", "")
+            except Exception:
+                result["key"] = ""
             self.login_success.emit(result)
         else:
             self.error_lbl.setText("Usuario o contraseña incorrectos.")

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "878676424139",
+    "project_id": "mf-agent-2b482",
+    "storage_bucket": "mf-agent-2b482.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:878676424139:android:4a5a68983431d150fa724e",
+        "android_client_info": {
+          "package_name": "com.mflabs.mf_agent_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBJU5Py_citK25Jsq5GPizL4pC29obdiss"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

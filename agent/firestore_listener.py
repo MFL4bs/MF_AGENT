@@ -16,48 +16,52 @@ class FirestoreListener(QObject):
         self._profile_id = profile_id
         self._unsubscribe = None
         self._thread = None
+        self._stopped = False
 
     def start(self):
         self._thread = threading.Thread(target=self._listen, daemon=True)
         self._thread.start()
 
     def stop(self):
+        self._stopped = True
         if self._unsubscribe:
-            self._unsubscribe()
+            try:
+                self._unsubscribe()
+            except Exception:
+                pass
             self._unsubscribe = None
 
     def _listen(self):
         try:
             import firebase_admin
-            from firebase_admin import credentials, firestore
-            from pathlib import Path
-            import sys
+            from firebase_admin import firestore
+            from agent.firestore_sync import _get_data_app
 
-            cred_file = "mf-agent-2b482-firebase-adminsdk-fbsvc-3eff30e990.json"
-            cred_path = (Path(sys._MEIPASS) if getattr(sys, "frozen", False)
-                         else Path(__file__).parent.parent) / cred_file
-
-            app_name = "data_sync"
-            if app_name not in [a.name for a in firebase_admin._apps.values()]:
-                data_app = firebase_admin.initialize_app(
-                    credentials.Certificate(str(cred_path)), name=app_name)
-            else:
-                data_app = firebase_admin.get_app(app_name)
+            data_app = _get_data_app()
 
             db = firestore.client(app=data_app)
             from agent.local_inventory import upsert_product, delete_product
 
             def on_snapshot(col_snapshot, changes, read_time):
+                if self._stopped:
+                    return
                 from google.cloud.firestore_v1.watch import ChangeType
+                changed = False
                 for change in changes:
-                    doc = change.document
-                    data = doc.to_dict()
-                    if data.get("profile_id") != self._profile_id:
-                        continue
-                    if change.type == ChangeType.REMOVED:
-                        delete_product(self._profile_id, data.get("sku", ""))
-                    else:  # ADDED or MODIFIED
-                        upsert_product(self._profile_id, data)
+                    try:
+                        doc = change.document
+                        data = doc.to_dict()
+                        if not data or data.get("profile_id") != self._profile_id:
+                            continue
+                        if change.type == ChangeType.REMOVED:
+                            delete_product(self._profile_id, data.get("sku", ""))
+                        else:  # ADDED or MODIFIED
+                            upsert_product(self._profile_id, data)
+                        changed = True
+                    except Exception as e:
+                        print(f"[FirestoreListener] Error en cambio: {e}")
+                # Un solo emit por batch, no uno por producto
+                if changed and not self._stopped:
                     self.product_changed.emit()
 
             query = db.collection("inventory").where(filter=firestore.FieldFilter("profile_id", "==", self._profile_id))

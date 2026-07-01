@@ -1,6 +1,9 @@
 # Credenciales y configuración sensible
 .env
 google_credentials.json
+*firebase-adminsdk*.json
+google-services*.json
+mobile/mf-agent*.json
 
 # Datos del perfil (información de clientes y ventas)
 data/
@@ -19,6 +22,16 @@ __pycache__/
 dist/
 build/
 *.spec
+venv/
+
+# Mobile
+mobile/android/.gradle/
+mobile/android/.kotlin/
+mobile/android/local.properties
+mobile/build/
+mobile/.dart_tool/
+*.apk
+*.aab
 
 # Logs
 *.log
