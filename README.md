@@ -6,7 +6,7 @@ Sistema de gestión comercial con bot de WhatsApp, inventario, ventas y app móv
 
 ## ¿Qué hace?
 
-MF Agent es una aplicación de escritorio (Windows) que permite a negocios gestionar su inventario, registrar ventas, generar facturas en PDF y atender clientes automáticamente por WhatsApp. Todo sincronizado en tiempo real con Firebase para que también puedas operar desde el celular.
+MF Agent es una aplicación de escritorio (Windows e Android) que permite a negocios gestionar su inventario, registrar ventas, generar facturas en PDF y atender clientes automáticamente por WhatsApp. Todo sincronizado en tiempo real con Firebase para que también puedas operar desde el celular.
 
 ---
 
@@ -66,7 +66,6 @@ Construida con Flutter. APK disponible para Android.
 | `profiles` | Datos del perfil, usuarios y key de licencia |
 | `licenses` | Licencias activas |
 | `devices` | Dispositivos registrados por licencia |
-| `pdf` | URLs de PDFs subidos a Firebase Storage |
 
 El PC escucha cambios en tiempo real (`FirestoreListener`) y actualiza el inventario y ventas locales cuando el móvil hace modificaciones.
 
