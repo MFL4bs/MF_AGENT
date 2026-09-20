@@ -12,6 +12,7 @@ BASE_DATA = [
     "--add-data=MF_LABS.png;.",
     "--add-data=MF_LABS.ico;.",
     "--add-data=mf-agent-2b482-firebase-adminsdk-fbsvc-937c5dc694.json;.",
+    "--add-data=mf-agent-2b482-firebase-adminsdk-fbsvc-3eff30e990.json;.",
     "--add-data=lic_manager;lic_manager",
 ]
 

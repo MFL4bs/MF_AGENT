@@ -104,6 +104,7 @@ class CreateProfileDialog(QDialog):
         user = self.admin_user.text().strip()
         pw   = self.admin_pass.text()
         pw2  = self.admin_pass2.text()
+        print(f"[CreateProfileDialog._create] name={name!r} user={user!r}")
         if not name or not user or not pw:
             self._err("Todos los campos son obligatorios.")
             return
@@ -115,18 +116,22 @@ class CreateProfileDialog(QDialog):
             from lic_manager.license_manager import _load_local
             local_lic = _load_local()
             key = local_lic.get('key', '')
+            print(f"[CreateProfileDialog._create] key={key!r}")
             if key:
                 from agent.profiles import list_profiles
                 existing = list_profiles()
+                print(f"[CreateProfileDialog._create] perfiles existentes: {len(existing)}")
                 if len(existing) >= 1:
                     self._err(
                         "Ya existe un perfil creado para esta licencia.\n"
                         "Solo se permite un perfil por key."
                     )
                     return
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[CreateProfileDialog._create] Exception en check licencia: {e}")
+        print(f"[CreateProfileDialog._create] Llamando create_profile...")
         create_profile(name, user, pw)
+        print(f"[CreateProfileDialog._create] create_profile retornó OK")
         self.accept()
 
     def _err(self, msg):

@@ -252,12 +252,17 @@ async def _handle_event(phone: str, event, profile_id: str):
     elif isinstance(event, tuple) and event[0] == "compra_con_datos":
         _, datos, carrito = event
         advisors = load_advisors(profile_id)
-        # Extraer número del texto del cliente
         num_match = re.search(r'(\d[\d\s\-]{6,14}\d)', datos)
         client_num = re.sub(r'\D', '', num_match.group(1)) if num_match else re.sub(r'\D', '', phone)
-        link = f"https://wa.me/{client_num}"
         resumen = "\n".join(f"  - {c['name']} x{c['qty']} = ${c['price']*c['qty']:,.0f} COP" for c in carrito)
         total = sum(c['price'] * c['qty'] for c in carrito)
+        # Mensaje preescrito para el link
+        import urllib.parse
+        items_wa = ", ".join(f"{c['name']} x{c['qty']}" for c in carrito)
+        texto_link = urllib.parse.quote(
+            f"Hola, soy tu asesor. Veo que has pedido:\n{resumen}\n\nTotal estimado: ${total:,.0f} COP\n\n¿Como puedo ayudarte?"
+        )
+        link = f"https://wa.me/{client_num}?text={texto_link}"
         msg_asesor = (
             f"PEDIDO DE COMPRA\n\n"
             f"Cliente: {datos}\n"
@@ -273,16 +278,50 @@ async def _handle_event(phone: str, event, profile_id: str):
         else:
             await notify_owner(msg_asesor)
 
-    elif isinstance(event, tuple) and event[0] == "transfer_con_nombre":
-        _, datos = event
+    elif isinstance(event, tuple) and event[0] == "transfer_con_pedido":
+        _, datos, carrito, resumen = event
         advisors = load_advisors(profile_id)
-        # Extraer número del texto que el cliente escribió
+        num_match = re.search(r'(\d[\d\s\-]{6,14}\d)', datos)
+        client_num = re.sub(r'\D', '', num_match.group(1)) if num_match else re.sub(r'\D', '', phone)
+        total = sum(c["price"] * c["qty"] for c in carrito)
+        items_txt = "\n".join(
+            f"  - {c['name']} x{c['qty']} = ${c['price']*c['qty']:,.0f} COP"
+            for c in carrito
+        )
+        # Mensaje preescrito para el link
+        import urllib.parse
+        texto_link = urllib.parse.quote(
+            f"Hola, soy tu asesor. Veo que has pedido:\n{items_txt}\n\nTotal estimado: ${total:,.0f} COP\n\n¿Como puedo ayudarte?"
+        )
+        link = f"https://wa.me/{client_num}?text={texto_link}"
+        msg_asesor = (
+            f"🛒 PEDIDO DE COMPRA\n\n"
+            f"Cliente: {datos}\n"
+            f"WhatsApp: {link}\n\n"
+            f"Productos solicitados:\n{items_txt}\n\n"
+            f"💰 TOTAL ESTIMADO: ${total:,.0f} COP"
+        )
+        if advisors:
+            for advisor in advisors:
+                ap = advisor.get("phone", "")
+                if ap:
+                    await send_whatsapp(ap, msg_asesor)
+        else:
+            await notify_owner(msg_asesor)
+
+    elif isinstance(event, tuple) and event[0] == "transfer_con_nombre":
+        datos = event[1]
+        advisors = load_advisors(profile_id)
         num_match = re.search(r'(\d[\d\s\-]{6,14}\d)', datos)
         if num_match:
             client_num = re.sub(r'\D', '', num_match.group(1))
         else:
             client_num = re.sub(r'\D', '', phone)
-        link = f"https://wa.me/{client_num}"
+        import urllib.parse
+        texto_link = urllib.parse.quote(
+            f"Hola, soy tu asesor. Veo que solicitaste hablar con nosotros. ¿En que puedo ayudarte?"
+        )
+        link = f"https://wa.me/{client_num}?text={texto_link}"
         msg_asesor = (
             f"CLIENTE SOLICITA ASESOR\n\n"
             f"Datos: {datos}\n"

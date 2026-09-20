@@ -164,6 +164,35 @@ class FirebaseService {
     await _db.collection('invoices').doc(invoiceId).delete();
   }
 
+  // ── Clientes ──────────────────────────────────────────────────────────────
+
+  static Stream<List<Map<String, dynamic>>> customersStream(String profileId) {
+    return _db
+        .collection('customers')
+        .snapshots()
+        .map((snap) => snap.docs
+            .where((d) => d.data()['profile_id'] == profileId)
+            .map((d) => {'id': d.id, ...d.data()})
+            .toList());
+  }
+
+  static Future<List<Map<String, dynamic>>> fetchCustomers(String profileId) async {
+    final snap = await _db.collection('customers').get();
+    return snap.docs
+        .where((d) => d.data()['profile_id'] == profileId)
+        .map((d) => {'id': d.id, ...d.data()})
+        .toList();
+  }
+
+  static Future<void> upsertCustomer(String profileId, Map<String, dynamic> customer) async {
+    final id = customer['id'] as String? ?? '';
+    if (id.isEmpty) return;
+    await _db
+        .collection('customers')
+        .doc('${profileId}_$id')
+        .set({...customer, 'profile_id': profileId}, SetOptions(merge: true));
+  }
+
   // ── Sync desde JSON local (PC → Firestore) ────────────────────────────────
 
   static Future<void> syncProductsFromLocal(

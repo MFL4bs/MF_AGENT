@@ -21,6 +21,9 @@ def _save(profile_id: str, records: list):
 
 def record_invoice(profile_id: str, invoice: dict):
     records = _load(profile_id)
+    inv_id = invoice.get("invoice_id") or invoice.get("sale_id")
+    if inv_id and any(r.get("invoice_id") == inv_id or r.get("sale_id") == inv_id for r in records):
+        return
     records.append(invoice)
     _save(profile_id, records)
 

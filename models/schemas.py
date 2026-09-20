@@ -7,7 +7,8 @@ class Product(BaseModel):
     sku: str
     name: str
     description: str = ""
-    price: float
+    price: float          # precio de venta
+    cost_price: float = 0.0  # precio de compra
     stock: int
     category: str = "general"
     image_url: Optional[str] = None
@@ -18,6 +19,7 @@ class Product(BaseModel):
 class ProductUpdate(BaseModel):
     stock: Optional[int] = None
     price: Optional[float] = None
+    cost_price: Optional[float] = None
     description: Optional[str] = None
     image_url: Optional[str] = None
 

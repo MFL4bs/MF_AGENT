@@ -1,0 +1,239 @@
+/* ── Paleta de colores ─────────────────────────────────────────────────────── */
+/* BG=#F5F0EB  SIDEBAR=#EDE8E3  CARD=#FDFAF7  ACCENT=#6B7280
+   ACCENT2=#1B6CA8  TEXT=#1F2937  SUBTEXT=#6B7280
+   SUCCESS=#16A34A  WARNING=#D97706  DANGER=#DC2626  BORDER=#D1CBC4 */
+
+.root {
+    -fx-background-color: #F5F0EB;
+    -fx-font-family: "Segoe UI", sans-serif;
+    -fx-font-size: 13px;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+.sidebar {
+    -fx-background-color: #EDE8E3;
+    -fx-border-color: #D1CBC4;
+    -fx-border-width: 0 1 0 0;
+    -fx-pref-width: 220px;
+    -fx-min-width: 220px;
+}
+
+.nav-title {
+    -fx-text-fill: #1F2937;
+    -fx-font-size: 17px;
+    -fx-font-weight: bold;
+}
+
+.nav-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill: #6B7280;
+    -fx-border: none;
+    -fx-background-radius: 10;
+    -fx-padding: 10 16 10 16;
+    -fx-alignment: CENTER_LEFT;
+    -fx-font-size: 14px;
+    -fx-cursor: hand;
+    -fx-pref-width: 188px;
+}
+.nav-btn:hover {
+    -fx-background-color: #FDFAF7;
+    -fx-text-fill: #1F2937;
+}
+.nav-btn.active {
+    -fx-background-color: #1B6CA8;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.card {
+    -fx-background-color: #FDFAF7;
+    -fx-background-radius: 16;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.12), 16, 0, 0, 4);
+}
+
+.stat-value {
+    -fx-font-size: 28px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1F2937;
+}
+.stat-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: #6B7280;
+}
+
+/* ── Botones ─────────────────────────────────────────────────────────────── */
+.btn-primary {
+    -fx-background-color: #6B7280;
+    -fx-text-fill: white;
+    -fx-border: none;
+    -fx-background-radius: 10;
+    -fx-padding: 10 22 10 22;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+}
+.btn-primary:hover { -fx-background-color: #1B6CA8; }
+
+.btn-danger {
+    -fx-background-color: #DC2626;
+    -fx-text-fill: white;
+    -fx-border: none;
+    -fx-background-radius: 8;
+    -fx-padding: 6 14 6 14;
+    -fx-cursor: hand;
+}
+.btn-danger:hover { -fx-background-color: #1B6CA8; }
+
+.btn-edit {
+    -fx-background-color: #6B7280;
+    -fx-text-fill: white;
+    -fx-border: none;
+    -fx-background-radius: 8;
+    -fx-padding: 6 14 6 14;
+    -fx-cursor: hand;
+}
+.btn-edit:hover { -fx-background-color: #1B6CA8; }
+
+.btn-whatsapp {
+    -fx-background-color: #25D366;
+    -fx-text-fill: white;
+    -fx-border: none;
+    -fx-background-radius: 10;
+    -fx-padding: 9 16 9 16;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+}
+
+.btn-success {
+    -fx-background-color: #16A34A;
+    -fx-text-fill: white;
+    -fx-border: none;
+    -fx-background-radius: 10;
+    -fx-padding: 9 16 9 16;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+}
+.btn-success:hover { -fx-background-color: #15803d; }
+
+/* ── Inputs ──────────────────────────────────────────────────────────────── */
+.text-field, .text-area, .combo-box, .spinner .text-field {
+    -fx-background-color: #EDE8E3;
+    -fx-text-fill: #1F2937;
+    -fx-border-color: #D1CBC4;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-padding: 7 12 7 12;
+    -fx-font-size: 13px;
+}
+.text-field:focused, .text-area:focused {
+    -fx-border-color: #6B7280;
+}
+
+.search-field {
+    -fx-background-color: #FDFAF7;
+    -fx-border-color: #D1CBC4;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+    -fx-padding: 8 14 8 14;
+    -fx-pref-width: 260px;
+}
+
+/* ── Tabla ───────────────────────────────────────────────────────────────── */
+.table-view {
+    -fx-background-color: #FDFAF7;
+    -fx-border-color: transparent;
+    -fx-background-radius: 12;
+}
+.table-view .column-header-background {
+    -fx-background-color: #EDE8E3;
+}
+.table-view .column-header .label {
+    -fx-text-fill: #6B7280;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+.table-row-cell {
+    -fx-background-color: #FDFAF7;
+    -fx-border-color: #D1CBC4;
+    -fx-border-width: 0 0 1 0;
+}
+.table-row-cell:odd {
+    -fx-background-color: #EDE8E3;
+}
+.table-row-cell:selected {
+    -fx-background-color: #6B7280;
+    -fx-text-fill: white;
+}
+.table-view .table-cell {
+    -fx-text-fill: #1F2937;
+    -fx-padding: 8;
+}
+
+/* ── Colores de texto ────────────────────────────────────────────────────── */
+.text-success { -fx-text-fill: #16A34A; }
+.text-warning { -fx-text-fill: #D97706; }
+.text-danger  { -fx-text-fill: #DC2626; }
+.text-accent  { -fx-text-fill: #1B6CA8; }
+.text-subtext { -fx-text-fill: #6B7280; }
+.text-main    { -fx-text-fill: #1F2937; }
+
+/* ── Alerta stock bajo ───────────────────────────────────────────────────── */
+.alert-warning {
+    -fx-background-color: #FEF3C7;
+    -fx-text-fill: #92400E;
+    -fx-border-color: #FCD34D;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+    -fx-padding: 12 18 12 18;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+/* ── Diálogos ────────────────────────────────────────────────────────────── */
+.dialog-pane {
+    -fx-background-color: #FDFAF7;
+}
+.dialog-pane .content.label {
+    -fx-text-fill: #1F2937;
+}
+
+/* ── Consola WhatsApp ───────────────────────────────────────────────────── */
+.console-area {
+    -fx-background-color: #0d1117;
+    -fx-border-color: #30363d;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-control-inner-background: #0d1117;
+    -fx-text-fill: #e6edf3;
+    -fx-font-family: "Consolas", "Courier New", monospace;
+    -fx-font-size: 11px;
+    -fx-padding: 0;
+}
+.console-area .content {
+    -fx-background-color: #0d1117;
+}
+.console-area .text {
+    -fx-fill: #e6edf3;
+    -fx-font-family: "Consolas", "Courier New", monospace;
+    -fx-font-size: 11px;
+}
+.console-area .scroll-pane {
+    -fx-background-color: #0d1117;
+}
+.console-area .scroll-pane .viewport {
+    -fx-background-color: #0d1117;
+}
+.console-area .scroll-pane .content {
+    -fx-background-color: #0d1117;
+}
+
+/* ── ScrollBar ───────────────────────────────────────────────────────────── */
+.scroll-bar:vertical .thumb,
+.scroll-bar:horizontal .thumb {
+    -fx-background-color: #D1CBC4;
+    -fx-background-radius: 3;
+}
+.scroll-bar {
+    -fx-background-color: #F5F0EB;
+}

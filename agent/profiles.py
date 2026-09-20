@@ -59,17 +59,48 @@ def get_profile(profile_id: str) -> dict | None:
     return next((p for p in list_profiles() if p["id"] == profile_id), None)
 
 
-def create_profile(name: str, admin_username: str, admin_password: str) -> dict:
+def create_profile(name: str, admin_username: str, admin_password: str, profile_id: str = None) -> dict:
+    print(f"[create_profile] INICIO name={name!r} admin={admin_username!r} profile_id_arg={profile_id!r}")
     data = _load()
+    print(f"[create_profile] profiles.json actual: {[p['id'] for p in data['profiles']]}")
+    # Usar el profile_id de la licencia si está disponible, sino generar uno
+    if not profile_id:
+        try:
+            from lic_manager.license_manager import _load_local, _save_local
+            local_lic = _load_local()
+            print(f"[create_profile] local_lic={local_lic}")
+            profile_id = local_lic.get("profile_id", "")
+            print(f"[create_profile] profile_id desde licencia: {profile_id!r}")
+            if not profile_id:
+                # Key nueva sin profile_id — generar uno y guardarlo
+                profile_id = str(uuid.uuid4())[:8]
+                print(f"[create_profile] Generando nuevo profile_id: {profile_id!r}")
+                _save_local(local_lic["key"], local_lic["device_id"], profile_id)
+                # Actualizar en Firestore también
+                try:
+                    print(f"[create_profile] Actualizando profile_id en Firestore...")
+                    from agent.firestore_sync import _get_data_app
+                    from firebase_admin import firestore as _fs
+                    _db = _fs.client(app=_get_data_app())
+                    _db.collection("licenses").document(local_lic["key"]).update({"profile_id": profile_id})
+                    print(f"[create_profile] Firestore actualizado OK")
+                except Exception as e:
+                    print(f"[create_profile] Error Firestore (ignorado): {e}")
+        except Exception as e:
+            print(f"[create_profile] Exception en bloque licencia: {e}")
+            profile_id = str(uuid.uuid4())[:8]
+            print(f"[create_profile] Fallback profile_id: {profile_id!r}")
     profile = {
-        "id": str(uuid.uuid4())[:8],
+        "id": profile_id,
         "name": name,
         "users": [
             {"username": admin_username, "password_hash": _hash(admin_password), "role": "admin"}
         ]
     }
+    print(f"[create_profile] Guardando perfil id={profile_id!r}")
     data["profiles"].append(profile)
     _save(data)
+    print(f"[create_profile] DONE — perfil guardado en {_profiles_file()}")
     return profile
 
 

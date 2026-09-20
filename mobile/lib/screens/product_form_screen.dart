@@ -7,7 +7,8 @@ import '../widgets/theme.dart';
 class ProductFormScreen extends StatefulWidget {
   final String profileId;
   final Product? product;
-  const ProductFormScreen({super.key, required this.profileId, this.product});
+  final bool isAdmin;
+  const ProductFormScreen({super.key, required this.profileId, this.product, this.isAdmin = false});
 
   @override
   State<ProductFormScreen> createState() => _ProductFormScreenState();
@@ -28,6 +29,21 @@ class _ProductFormScreenState extends State<ProductFormScreen> {
     _price    = TextEditingController(text: p?.price.toString() ?? '');
     _stock    = TextEditingController(text: p?.stock.toString() ?? '0');
     _category = TextEditingController(text: p?.category ?? 'general');
+    // Auto-sugerir siguiente SKU solo en producto nuevo y si es admin
+    if (widget.product == null && widget.isAdmin) _loadNextSku();
+  }
+
+  Future<void> _loadNextSku() async {
+    try {
+      final products = await FirebaseService.productsStream(widget.profileId).first;
+      // Extraer SKUs numéricos y encontrar el máximo
+      int maxNum = 0;
+      for (final p in products) {
+        final n = int.tryParse(p.sku.replaceAll(RegExp(r'[^0-9]'), ''));
+        if (n != null && n > maxNum) maxNum = n;
+      }
+      if (mounted) _sku.text = '${maxNum + 1}';
+    } catch (_) {}
   }
 
   @override

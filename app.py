@@ -274,14 +274,28 @@ class BridgeWorker(QThread):
             encoding="utf-8",
             errors="replace",
         )
-        for line in self._proc.stdout:
-            self.output.emit(line.rstrip())
+        while self._proc and self._proc.poll() is None:
+            line = self._proc.stdout.readline()
+            if not line:
+                break
+            line = line.rstrip()
+            self.output.emit(line)
             if "listo" in line.lower() or "ready" in line.lower() or "conectado" in line.lower():
                 self.connected.emit()
 
     def stop(self):
         if self._proc and self._proc.poll() is None:
-            self._proc.terminate()
+            try:
+                import subprocess
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(self._proc.pid)],
+                               capture_output=True, timeout=5)
+            except Exception:
+                pass
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+        self._proc = None
 
 
 # ── Modal WhatsApp solo lectura (vendedor) ───────────────────────────────────
@@ -385,6 +399,7 @@ class WhatsAppViewDialog(QDialog):
         self.status_lbl.setStyleSheet(f"color: {SUCCESS}; font-size: 13px; font-weight: 600;")
 
     def closeEvent(self, event):
+        self._stop()
         super().closeEvent(event)
 
 
@@ -516,6 +531,7 @@ class WhatsAppConfigDialog(QDialog):
     def closeEvent(self, event):
         # No matar el proceso al cerrar el modal — sigue corriendo en background
         super().closeEvent(event)
+
 
 
 # ── Worker geocoding Nominatim (OpenStreetMap) ──────────────────────────────
@@ -2712,6 +2728,9 @@ class MainWindow(QMainWindow):
         self._table = QTableWidget()
         self._table.setColumnCount(9)
         self._table.setHorizontalHeaderLabels(["Foto", "SKU", "Nombre", "Categoría", "Costo", "Venta", "Rentab.", "Stock", "Acciones"])
+        if not self._is_admin:
+            self._table.setColumnHidden(4, True)  # Costo
+            self._table.setColumnHidden(6, True)  # Rentab.
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
         self._table.setColumnWidth(0, 58)
@@ -2742,8 +2761,10 @@ class MainWindow(QMainWindow):
         self._lbl_total_units.setStyleSheet(f"color:{TEXT};font-size:13px;font-weight:600;")
         self._lbl_total_cost = QLabel("Costo total: —")
         self._lbl_total_cost.setStyleSheet(f"color:{WARNING};font-size:13px;font-weight:600;")
+        self._lbl_total_cost.setVisible(self._is_admin)
         self._lbl_total_profit = QLabel("Ganancia potencial: —")
         self._lbl_total_profit.setStyleSheet(f"color:{SUCCESS};font-size:13px;font-weight:600;")
+        self._lbl_total_profit.setVisible(self._is_admin)
         itb_layout.addWidget(self._lbl_total_units)
         itb_layout.addWidget(self._lbl_total_cost)
         itb_layout.addWidget(self._lbl_total_profit)
@@ -2778,27 +2799,134 @@ class MainWindow(QMainWindow):
         sv_stats.addStretch()
         sv_layout.addLayout(sv_stats)
 
+        # Tabs: Lista + Calendario (calendario solo admin)
+        from PyQt6.QtWidgets import QTabWidget
+        self._sales_tabs = QTabWidget()
+        self._sales_tabs.setStyleSheet(f"""
+            QTabWidget::pane {{ border: 1px solid {BORDER}; border-radius: 10px; background: {CARD}; }}
+            QTabBar::tab {{ background: {SIDEBAR}; color: {SUBTEXT}; padding: 8px 18px;
+                           border-radius: 8px 8px 0 0; font-size: 13px; }}
+            QTabBar::tab:selected {{ background: {ACCENT2}; color: white; font-weight: 600; }}
+        """)
+
+        # ── Tab Lista ─────────────────────────────────────────────────────────
+        tab_lista = QWidget()
+        tab_lista_layout = QVBoxLayout(tab_lista)
+        tab_lista_layout.setContentsMargins(8, 8, 8, 8)
+        tab_lista_layout.setSpacing(8)
+
+        # Columnas: admin tiene "Vendedor", vendedor no
+        if self._is_admin:
+            cols = ["Fecha", "ID", "Cliente", "Canal", "Vendedor", "Items", "Total", "PDF", "✏️", "🗑️"]
+        else:
+            cols = ["Fecha", "ID", "Cliente", "Canal", "Items", "Total", "PDF"]
+
         self._sales_table = QTableWidget()
-        self._sales_table.setColumnCount(9)
-        self._sales_table.setHorizontalHeaderLabels(
-            ["Fecha", "ID", "Cliente", "Canal", "Items", "Total", "PDF", "✏️", "🗑️"]
-        )
-        self._sales_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self._sales_table.setColumnCount(len(cols))
+        self._sales_table.setHorizontalHeaderLabels(cols)
+        items_col = 5 if self._is_admin else 4
+        self._sales_table.horizontalHeader().setSectionResizeMode(items_col, QHeaderView.ResizeMode.Stretch)
         self._sales_table.setColumnWidth(0, 130)
-        self._sales_table.setColumnWidth(1, 120)
-        self._sales_table.setColumnWidth(2, 140)
-        self._sales_table.setColumnWidth(3, 80)
-        self._sales_table.setColumnWidth(5, 85)
-        self._sales_table.setColumnWidth(6, 60)
-        self._sales_table.setColumnWidth(7, 44)
-        self._sales_table.setColumnWidth(8, 44)
+        self._sales_table.setColumnWidth(1, 110)
+        self._sales_table.setColumnWidth(2, 130)
+        self._sales_table.setColumnWidth(3, 75)
+        if self._is_admin:
+            self._sales_table.setColumnWidth(4, 90)   # Vendedor
+            self._sales_table.setColumnWidth(6, 80)   # Total
+            self._sales_table.setColumnWidth(7, 55)   # PDF
+            self._sales_table.setColumnWidth(8, 40)   # edit
+            self._sales_table.setColumnWidth(9, 40)   # del
+        else:
+            self._sales_table.setColumnWidth(5, 80)   # Total
+            self._sales_table.setColumnWidth(6, 55)   # PDF
         self._sales_table.verticalHeader().setDefaultSectionSize(40)
         self._sales_table.verticalHeader().setVisible(False)
         self._sales_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._sales_table.setAlternatingRowColors(True)
         self._sales_table.setStyleSheet(self._sales_table.styleSheet() +
             f"QTableWidget {{ alternate-background-color: {SIDEBAR}; }}")
-        sv_layout.addWidget(self._sales_table)
+        tab_lista_layout.addWidget(self._sales_table)
+        self._sales_tabs.addTab(tab_lista, "📋  Lista")
+
+        # ── Tab Calendario (solo admin) ───────────────────────────────────────
+        if self._is_admin:
+            from PyQt6.QtWidgets import QCalendarWidget, QSplitter
+            from PyQt6.QtCore import QDate
+            tab_cal = QWidget()
+            tab_cal_layout = QVBoxLayout(tab_cal)
+            tab_cal_layout.setContentsMargins(12, 12, 12, 12)
+            tab_cal_layout.setSpacing(10)
+
+            splitter = QSplitter(Qt.Orientation.Horizontal)
+
+            # Calendario
+            self._calendar = QCalendarWidget()
+            self._calendar.setMaximumDate(QDate.currentDate())
+            self._calendar.setFixedWidth(340)
+            self._calendar.setStyleSheet(f"""
+                QCalendarWidget QAbstractItemView {{
+                    background: {CARD}; color: {TEXT};
+                    selection-background-color: {ACCENT2}; selection-color: white;
+                }}
+                QCalendarWidget QWidget {{ background: {CARD}; color: {TEXT}; }}
+                QCalendarWidget QToolButton {{ color: {TEXT}; background: {SIDEBAR};
+                    border-radius: 6px; padding: 4px 8px; }}
+                QCalendarWidget QToolButton:hover {{ background: {ACCENT2}; color: white; }}
+                QCalendarWidget #qt_calendar_navigationbar {{ background: {SIDEBAR}; }}
+            """)
+            self._calendar.clicked.connect(self._on_calendar_date_selected)
+            splitter.addWidget(self._calendar)
+
+            # Panel derecho: tabla del día + footer
+            cal_right = QWidget()
+            cal_right_layout = QVBoxLayout(cal_right)
+            cal_right_layout.setContentsMargins(0, 0, 0, 0)
+            cal_right_layout.setSpacing(8)
+
+            self._cal_day_lbl = QLabel("Selecciona un día")
+            self._cal_day_lbl.setStyleSheet(f"color:{TEXT};font-size:14px;font-weight:700;")
+            cal_right_layout.addWidget(self._cal_day_lbl)
+
+            self._cal_table = QTableWidget()
+            self._cal_table.setColumnCount(6)
+            self._cal_table.setHorizontalHeaderLabels(["ID", "Cliente", "Vendedor", "Canal", "Items", "Total"])
+            self._cal_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+            self._cal_table.setColumnWidth(0, 110)
+            self._cal_table.setColumnWidth(1, 120)
+            self._cal_table.setColumnWidth(2, 90)
+            self._cal_table.setColumnWidth(3, 75)
+            self._cal_table.setColumnWidth(5, 85)
+            self._cal_table.verticalHeader().setVisible(False)
+            self._cal_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            self._cal_table.setAlternatingRowColors(True)
+            self._cal_table.setStyleSheet(self._cal_table.styleSheet() +
+                f"QTableWidget {{ alternate-background-color: {SIDEBAR}; }}")
+            cal_right_layout.addWidget(self._cal_table, 1)
+
+            # Footer totales del día
+            cal_footer = QWidget()
+            cal_footer.setObjectName("card")
+            cal_footer_layout = QHBoxLayout(cal_footer)
+            cal_footer_layout.setContentsMargins(16, 10, 16, 10)
+            cal_footer_layout.setSpacing(32)
+            self._cal_total_lbl = QLabel("Total del día: —")
+            self._cal_total_lbl.setStyleSheet(f"color:{SUCCESS};font-size:13px;font-weight:700;")
+            self._cal_rent_lbl = QLabel("Rentabilidad: —")
+            self._cal_rent_lbl.setStyleSheet(f"color:{ACCENT2};font-size:13px;font-weight:700;")
+            self._cal_count_lbl = QLabel("Ventas: —")
+            self._cal_count_lbl.setStyleSheet(f"color:{TEXT};font-size:13px;font-weight:600;")
+            cal_footer_layout.addWidget(self._cal_count_lbl)
+            cal_footer_layout.addWidget(self._cal_total_lbl)
+            cal_footer_layout.addWidget(self._cal_rent_lbl)
+            cal_footer_layout.addStretch()
+            cal_right_layout.addWidget(cal_footer)
+
+            splitter.addWidget(cal_right)
+            splitter.setStretchFactor(1, 1)
+            tab_cal_layout.addWidget(splitter)
+            self._sales_tabs.addTab(tab_cal, "📅  Calendario")
+
+        sv_layout.addWidget(self._sales_tabs)
         self.content_layout.addWidget(self._sales_widget)
 
         return self.content
@@ -3022,57 +3150,79 @@ class MainWindow(QMainWindow):
     def _on_sales_loaded(self, invoices: list):
         from datetime import datetime
         all_records = sorted(invoices, key=lambda x: x.get("timestamp", ""), reverse=True)
+
+        # Vendedor: solo ve sus propias ventas
+        if not self._is_admin:
+            all_records = [r for r in all_records
+                           if r.get("registered_by", "") == self._session["username"]
+                           or r.get("registered_by", "") == ""]  # ventas antiguas sin campo
+
         today = datetime.now().strftime("%Y-%m-%d")
         today_recs = [r for r in all_records if r.get("timestamp", "").startswith(today)]
-        
-        # Estadísticas de hoy
+
         total_hoy = sum(r.get("total", 0) for r in today_recs)
-        wa_count = sum(1 for r in today_recs if r.get("channel") == "whatsapp")
-        
-        # Estadísticas totales (todos los tiempos)
+        wa_count  = sum(1 for r in today_recs if r.get("channel") == "whatsapp")
         total_all = sum(r.get("total", 0) for r in all_records)
-        
+
         self.stat_sales_total.setText(f"${total_hoy:,.0f}")
         self.stat_sales_count.setText(str(len(today_recs)))
         self.stat_sales_wa.setText(str(wa_count))
         self.stat_sales_all_total.setText(f"${total_all:,.0f}")
         self.stat_sales_all_count.setText(str(len(all_records)))
 
+        self._sales_table.setUpdatesEnabled(False)
         self._sales_table.setRowCount(len(all_records))
         for row, rec in enumerate(all_records):
-            canal = rec.get("channel", "manual")
+            canal      = rec.get("channel", "manual")
             canal_icon = "WhatsApp" if canal == "whatsapp" else "Manual"
-            items = rec.get("items", [])
-            items_txt = ", ".join(f"{i.get('product_name','')} x{i.get('quantity',1)}" for i in items)
-            total_val = rec.get("total", 0)
+            items      = rec.get("items", [])
+            items_txt  = ", ".join(f"{i.get('product_name','')} x{i.get('quantity',1)}" for i in items)
+            total_val  = rec.get("total", 0)
             total_item = QTableWidgetItem(f"${total_val:,.0f}")
             total_item.setForeground(QColor(SUCCESS))
-            self._sales_table.setItem(row, 0, QTableWidgetItem(rec.get("timestamp", "")))
-            self._sales_table.setItem(row, 1, QTableWidgetItem(rec.get("invoice_id", "")))
-            self._sales_table.setItem(row, 2, QTableWidgetItem(rec.get("customer", "")))
-            self._sales_table.setItem(row, 3, QTableWidgetItem(canal_icon))
-            self._sales_table.setItem(row, 4, QTableWidgetItem(items_txt))
-            self._sales_table.setItem(row, 5, total_item)
-            pdf_btn = QPushButton("PDF")
-            pdf_btn.setFixedHeight(30)
-            pdf_btn.setFixedWidth(60)
-            pdf_btn.setStyleSheet(f"background:{ACCENT2};color:white;border:none;border-radius:4px;font-size:12px;font-weight:600;")
-            pdf_btn.clicked.connect(lambda _, r=rec: self._export_pdf(r))
-            self._sales_table.setCellWidget(row, 6, pdf_btn)
-            edit_btn = QPushButton("✏️")
-            edit_btn.setFixedHeight(30)
-            edit_btn.setFixedWidth(40)
-            edit_btn.setStyleSheet(f"background:{ACCENT};color:white;border:none;border-radius:4px;font-size:12px;")
-            edit_btn.setVisible(self._is_admin)
-            edit_btn.clicked.connect(lambda _, r=rec: self._edit_invoice(r))
-            self._sales_table.setCellWidget(row, 7, edit_btn)
-            del_btn = QPushButton("🗑️")
-            del_btn.setFixedHeight(30)
-            del_btn.setFixedWidth(40)
-            del_btn.setStyleSheet(f"background:{DANGER};color:white;border:none;border-radius:4px;font-size:12px;")
-            del_btn.setVisible(self._is_admin)
-            del_btn.clicked.connect(lambda _, r=rec: self._delete_record(r))
-            self._sales_table.setCellWidget(row, 8, del_btn)
+
+            if self._is_admin:
+                # Fecha, ID, Cliente, Canal, Vendedor, Items, Total, PDF, edit, del
+                self._sales_table.setItem(row, 0, QTableWidgetItem(rec.get("timestamp", "")))
+                self._sales_table.setItem(row, 1, QTableWidgetItem(rec.get("invoice_id", "")))
+                self._sales_table.setItem(row, 2, QTableWidgetItem(rec.get("customer", "")))
+                self._sales_table.setItem(row, 3, QTableWidgetItem(canal_icon))
+                vendor_item = QTableWidgetItem(rec.get("registered_by", "—"))
+                vendor_item.setForeground(QColor(ACCENT2))
+                self._sales_table.setItem(row, 4, vendor_item)
+                self._sales_table.setItem(row, 5, QTableWidgetItem(items_txt))
+                self._sales_table.setItem(row, 6, total_item)
+                pdf_btn = QPushButton("PDF")
+                pdf_btn.setFixedHeight(30); pdf_btn.setFixedWidth(55)
+                pdf_btn.setStyleSheet(f"background:{ACCENT2};color:white;border:none;border-radius:4px;font-size:12px;font-weight:600;")
+                pdf_btn.clicked.connect(lambda _, r=rec: self._export_pdf(r))
+                self._sales_table.setCellWidget(row, 7, pdf_btn)
+                edit_btn = QPushButton("✏️")
+                edit_btn.setFixedHeight(30); edit_btn.setFixedWidth(40)
+                edit_btn.setStyleSheet(f"background:{ACCENT};color:white;border:none;border-radius:4px;font-size:12px;")
+                edit_btn.clicked.connect(lambda _, r=rec: self._edit_invoice(r))
+                self._sales_table.setCellWidget(row, 8, edit_btn)
+                del_btn = QPushButton("🗑️")
+                del_btn.setFixedHeight(30); del_btn.setFixedWidth(40)
+                del_btn.setStyleSheet(f"background:{DANGER};color:white;border:none;border-radius:4px;font-size:12px;")
+                del_btn.clicked.connect(lambda _, r=rec: self._delete_record(r))
+                self._sales_table.setCellWidget(row, 9, del_btn)
+            else:
+                # Fecha, ID, Cliente, Canal, Items, Total, PDF
+                self._sales_table.setItem(row, 0, QTableWidgetItem(rec.get("timestamp", "")))
+                self._sales_table.setItem(row, 1, QTableWidgetItem(rec.get("invoice_id", "")))
+                self._sales_table.setItem(row, 2, QTableWidgetItem(rec.get("customer", "")))
+                self._sales_table.setItem(row, 3, QTableWidgetItem(canal_icon))
+                self._sales_table.setItem(row, 4, QTableWidgetItem(items_txt))
+                self._sales_table.setItem(row, 5, total_item)
+                pdf_btn = QPushButton("PDF")
+                pdf_btn.setFixedHeight(30); pdf_btn.setFixedWidth(55)
+                pdf_btn.setStyleSheet(f"background:{ACCENT2};color:white;border:none;border-radius:4px;font-size:12px;font-weight:600;")
+                pdf_btn.clicked.connect(lambda _, r=rec: self._export_pdf(r))
+                self._sales_table.setCellWidget(row, 6, pdf_btn)
+
+        self._sales_table.setUpdatesEnabled(True)
+        self._sales_table.viewport().update()
 
     def _edit_invoice(self, record: dict):
         if not self._is_admin:
@@ -3114,6 +3264,7 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             invoice = dlg.get_invoice()
             inv_dict = dlg.get_invoice_dict()
+            inv_dict["source"] = "pc"
             try:
                 record_invoice(self._profile_id, inv_dict)
                 # Descontar stock de productos normales (no cotizaciones)
@@ -3217,7 +3368,9 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             invoice = dlg.get_invoice()
             try:
-                record_invoice(self._profile_id, invoice.dict())
+                inv_dict = invoice.dict()
+                inv_dict["source"] = "pc"
+                record_invoice(self._profile_id, inv_dict)
                 for item in invoice.items:
                     p = get_product(self._profile_id, item.sku)
                     if p and int(p["stock"]) >= item.quantity:
@@ -3225,13 +3378,15 @@ class MainWindow(QMainWindow):
                 self._show_sales_view()
                 self._load_products()
                 self._sync_firestore()  # sincronizar venta e inventario a Firestore
-                self._notify_admin_sale(invoice.dict())
+                self._notify_admin_sale(inv_dict)
             except Exception as e:
                 import traceback; traceback.print_exc()
                 _msg(self, "Error", str(e))
 
     # ── Tabla inventario ─────────────────────────────────────────────────────────────
     def _populate_table(self, products: list):
+        self._table.hide()
+        self._table.setUpdatesEnabled(False)
         self._table.setRowCount(0)
         if not products:
             self._table.setRowCount(1)
@@ -3240,6 +3395,8 @@ class MainWindow(QMainWindow):
             empty.setForeground(QColor(SUBTEXT))
             self._table.setItem(0, 2, empty)
             self._table.setSpan(0, 0, 1, 7)
+            self._table.setUpdatesEnabled(True)
+            self._table.show()
             return
         self._table.setSpan(0, 0, 1, 1)  # reset span
         self._table.setRowCount(len(products))
@@ -3330,6 +3487,9 @@ class MainWindow(QMainWindow):
         self._lbl_total_cost.setText(f"Costo total: ${total_cost_val:,.0f}")
         self._lbl_total_profit.setText(f"Ganancia potencial: ${total_profit_val:,.0f}")
         self._inv_totals_bar.setVisible(True)
+        self._table.setUpdatesEnabled(True)
+        self._table.viewport().update()
+        self._table.show()
 
     def _filter_table(self, text: str):
         q = text.lower()
@@ -3437,8 +3597,7 @@ class AppController(QStackedWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MF Agent")
-        
-        # Establecer icono de la ventana
+
         icon_path = Path(__file__).parent / "MF_LABS.ico"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
@@ -3446,103 +3605,70 @@ class AppController(QStackedWidget):
             png_path = Path(__file__).parent / "MF_LABS.png"
             if png_path.exists():
                 self.setWindowIcon(QIcon(str(png_path)))
-        
+
         self.showMaximized()
-
-        self._login = LoginScreen()
-        self._manager = ProfileManagerScreen()
         self._main = None
-        self.addWidget(self._login)    # index 0
-        self.addWidget(self._manager) # index 1
 
-        self._login.login_success.connect(self._on_login)
-        self._login.manage_profiles.connect(lambda: self.setCurrentIndex(1))
-        self._manager.back.connect(lambda: (
-            self._login._refresh_profiles(),
-            self.setCurrentIndex(0)
-        ))
-        self.setCurrentIndex(0)
-
-    def _on_login(self, session: dict):
+    def start(self, session: dict):
+        """Llamado desde app.py main cuando ActivationScreen emite activated."""
         self._main = MainWindow(session)
         self._main.logout.connect(self._on_logout)
         self.addWidget(self._main)
         self.setCurrentWidget(self._main)
-        # Inicializar Firebase una sola vez antes de arrancar workers
-        try:
-            from agent.firestore_sync import _get_data_app
-            _get_data_app()
-        except Exception as e:
-            print(f"[Firebase] Error init: {e}")
-        # Sync inmediato al login
-        self._do_sync(session["profile_id"])
-        # Sincronizar usuarios del perfil a Firestore
-        try:
-            from agent.profiles import get_profile
-            import firebase_admin
-            from agent.firestore_sync import _get_data_app
-            _app = _get_data_app()
-            from firebase_admin import firestore as _fs
-            _db = _fs.client(app=_app)
-            _profile = get_profile(session["profile_id"])
-            if _profile:
-                users_data = [{"username": u["username"], "password_hash": u["password_hash"], "role": u["role"]} for u in _profile.get("users", [])]
-                _db.collection("profiles").document(session["profile_id"]).set(
-                    {"users": users_data, "name": _profile["name"], "id": session["profile_id"], "key": session.get("key", "")},
-                    merge=True
-                )
-                print(f"[Users] {len(users_data)} usuarios sincronizados a Firestore.")
-        except Exception as _ue:
-            print(f"[Users] Error sincronizando usuarios: {_ue}")
-        # Importar clientes desde ventas históricas (silencioso, solo agrega nuevos)
+        self._listeners_started = False
+
+        # Crear listeners
+        from agent.firestore_sync import FirestoreListener
+        self._fs_listener = FirestoreListener(session["profile_id"])
+        self._fs_listener.new_sale.connect(self._on_mobile_sale)
+
+        from agent.firestore_listener import FirestoreListener as InventoryListener
+        self._inv_listener = InventoryListener(session["profile_id"], parent=self)
+        self._inv_listener.product_changed.connect(self._on_inventory_changed)
+
+        # Importar clientes desde ventas
         try:
             from agent.local_customers import import_from_sales
             n = import_from_sales(session["profile_id"])
             if n:
-                print(f"[Customers] {n} clientes importados desde ventas.")
+                print(f"[Customers] {n} clientes importados.")
         except Exception as e:
-            print(f"[Customers] Error importando: {e}")
-        # Sync automático cada 5 minutos
+            print(f"[Customers] Error: {e}")
+
+        # Sync cada 5 minutos
         self._sync_timer = QTimer()
         self._sync_timer.timeout.connect(lambda: self._do_sync(session["profile_id"]))
         self._sync_timer.start(5 * 60 * 1000)
-        # Listener en tiempo real para ventas del móvil (arranca 3s después del sync)
-        from agent.firestore_sync import FirestoreListener
-        self._fs_listener = FirestoreListener(session["profile_id"])
-        self._fs_listener.new_sale.connect(self._on_mobile_sale)
-        QTimer.singleShot(3000, self._fs_listener.start)
-        # Listener en tiempo real para inventario (productos creados/editados/borrados desde el móvil)
-        from agent.firestore_listener import FirestoreListener as InventoryListener
-        self._inv_listener = InventoryListener(session["profile_id"], parent=self)
-        self._inv_listener.product_changed.connect(self._on_inventory_changed)
-        QTimer.singleShot(3500, self._inv_listener.start)
+        self._do_sync(session["profile_id"], first=True)
 
-    def _do_sync(self, profile_id: str):
+    def _start_listeners(self):
+        if self._listeners_started:
+            return
+        self._listeners_started = True
+        QTimer.singleShot(500,  self._fs_listener.start)
+        QTimer.singleShot(1000, self._inv_listener.start)
+
+    def _do_sync(self, profile_id: str, first: bool = False):
         from agent.firestore_sync import SyncWorker
         self._sync = SyncWorker(profile_id)
-        self._sync.done.connect(lambda ok, msg: print(f"[Sync] {msg}"))
+        if first:
+            self._sync.done.connect(lambda ok, msg: (print(f"[Sync] {msg}"), self._start_listeners()))
+        else:
+            self._sync.done.connect(lambda ok, msg: print(f"[Sync] {msg}"))
         self._sync.start()
 
     def _on_mobile_sale(self, inv_json: str):
-        """Refresca cuando llega una venta nueva o eliminada desde el móvil."""
         import json
         try:
             inv = json.loads(inv_json)
         except Exception:
             inv = {}
-        # Tanto ADDED como REMOVED requieren refrescar productos y ventas
         self._main._load_products()
         page = getattr(self._main, "_current_page", "Dashboard")
-        if page == "Ventas":
-            self._main._show_sales_view()
-        elif "__deleted__" in inv:
-            # Si está en otra vista, igual refrescar ventas en background
+        if page == "Ventas" or "__deleted__" in inv:
             self._main._show_sales_view()
 
     def _on_inventory_changed(self):
-        """Refresca inventario cuando llega un cambio desde el móvil.
-        Debounce 1.5s: evita crear un QThread por cada producto del snapshot
-        inicial (47 emits seguidos = stack overflow nativo)."""
         if not self._main:
             return
         if not hasattr(self, '_inv_debounce_timer'):
@@ -3552,16 +3678,12 @@ class AppController(QStackedWidget):
         self._inv_debounce_timer.start(1500)
 
     def _do_inventory_reload(self):
-        if not self._main:
-            return
-        print("[InventoryListener] Cambio detectado — refrescando UI")
-        self._main._load_products()
+        if self._main:
+            self._main._load_products()
 
     def _on_logout(self):
-        # Detener debounce timer primero
         if hasattr(self, '_inv_debounce_timer') and self._inv_debounce_timer:
             self._inv_debounce_timer.stop()
-        # Desconectar señales del inventory listener antes de destruir
         if hasattr(self, '_inv_listener') and self._inv_listener:
             try:
                 self._inv_listener.product_changed.disconnect()
@@ -3585,14 +3707,11 @@ class AppController(QStackedWidget):
             self._sync.wait(2000)
         old = self._main
         self._main = None
-        self._login._refresh_profiles()
-        self._login.username_input.clear()
-        self._login.password_input.clear()
-        self._login.error_lbl.setText("")
-        self.setCurrentIndex(0)
         self.removeWidget(old)
         old.hide()
         QTimer.singleShot(500, old.deleteLater)
+        # Volver a mostrar activacion
+        QTimer.singleShot(600, QApplication.quit)
 
 
 if __name__ == "__main__":
@@ -3618,6 +3737,14 @@ if __name__ == "__main__":
             app.setWindowIcon(QIcon(str(png_path)))
 
     # ── Validar licencia antes de arrancar ────────────────────────────────────
+    # Inicializar Firebase en hilo principal antes de cualquier widget
+    try:
+        from agent.firestore_sync import _get_data_app
+        _get_data_app()
+        print("[main] Firebase inicializado OK")
+    except Exception as _fe:
+        print(f"[main] Firebase init: {_fe}")
+
     from lic_manager.activation_screen import ActivationScreen
 
     activation = ActivationScreen()
@@ -3635,7 +3762,20 @@ if __name__ == "__main__":
         controller.hide()
         QTimer.singleShot(3300, lambda: splash.finish_loading(controller))
 
-    activation.activated.connect(_launch_app)
+    controller = AppController()
+    controller.setStyleSheet(QSS)
+
+    def _on_activated(session: dict):
+        activation.hide()
+        from splash import SplashScreen
+        splash = SplashScreen()
+        splash.show()
+        app.processEvents()
+        controller.start(session)
+        controller.show()
+        QTimer.singleShot(3300, lambda: splash.finish_loading(controller))
+
+    activation.activated.connect(_on_activated)
     activation.show()
 
     sys.exit(app.exec())

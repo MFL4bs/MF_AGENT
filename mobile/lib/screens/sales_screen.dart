@@ -8,7 +8,9 @@ import 'new_sale_screen.dart';
 
 class SalesScreen extends StatelessWidget {
   final String profileId;
-  const SalesScreen({super.key, required this.profileId});
+  final String username;
+  final bool isAdmin;
+  const SalesScreen({super.key, required this.profileId, this.username = '', this.isAdmin = false});
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +22,7 @@ class SalesScreen extends StatelessWidget {
             icon: const Icon(Icons.add),
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => NewSaleScreen(profileId: profileId)),
+              MaterialPageRoute(builder: (_) => NewSaleScreen(profileId: profileId, username: username)),
             ),
           ),
         ],
@@ -31,7 +33,13 @@ class SalesScreen extends StatelessWidget {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          final invoices = snap.data ?? [];
+          final all = snap.data ?? [];
+          final invoices = isAdmin
+              ? all
+              : all.where((i) {
+                  if (i.registeredBy.isEmpty) return false;
+                  return i.registeredBy.toLowerCase().trim() == username.toLowerCase().trim();
+                }).toList();
           final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
           final todayInvoices = invoices.where((i) => i.timestamp.startsWith(today)).toList();
           final totalHoy = todayInvoices.fold(0.0, (s, i) => s + i.total);
@@ -70,6 +78,7 @@ class SalesScreen extends StatelessWidget {
                         itemBuilder: (_, i) => _InvoiceCard(
                           invoice: invoices[i],
                           profileId: profileId,
+                          showSeller: isAdmin,
                         ),
                       ),
               ),
@@ -107,7 +116,8 @@ class _StatChip extends StatelessWidget {
 class _InvoiceCard extends StatelessWidget {
   final Invoice invoice;
   final String profileId;
-  const _InvoiceCard({required this.invoice, required this.profileId});
+  final bool showSeller;
+  const _InvoiceCard({required this.invoice, required this.profileId, this.showSeller = false});
 
   @override
   Widget build(BuildContext context) {
@@ -118,9 +128,17 @@ class _InvoiceCard extends StatelessWidget {
         leading: Text(channelIcon, style: const TextStyle(fontSize: 28)),
         title: Text(invoice.customer.isEmpty ? 'Consumidor final' : invoice.customer,
             style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-        subtitle: Text(
-          '${invoice.invoiceId} · ${invoice.timestamp.length >= 10 ? invoice.timestamp.substring(0, 10) : invoice.timestamp}',
-          style: TextStyle(color: kSubtext, fontSize: 12),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${invoice.invoiceId} · ${invoice.timestamp.length >= 10 ? invoice.timestamp.substring(0, 10) : invoice.timestamp}',
+              style: TextStyle(color: kSubtext, fontSize: 12),
+            ),
+            if (showSeller && invoice.registeredBy.isNotEmpty)
+              Text('Vendedor: ${invoice.registeredBy}',
+                  style: const TextStyle(color: kAccent, fontSize: 11, fontWeight: FontWeight.w600)),
+          ],
         ),
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,

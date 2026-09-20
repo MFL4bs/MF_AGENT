@@ -106,14 +106,16 @@ class DashboardScreen extends StatelessWidget {
           StreamBuilder(
             stream: FirebaseService.invoicesStream(profileId),
             builder: (_, snap) {
-              final invoices = snap.data ?? [];
+              final all = snap.data ?? [];
+              final invoices = isAdmin ? all : all.where((i) => i.registeredBy.toLowerCase() == username.toLowerCase()).toList();
               final todayInv = invoices.where((i) => i.timestamp.startsWith(today)).toList();
               final totalHoy = todayInv.fold(0.0, (s, i) => s + i.total);
               final totalAll = invoices.fold(0.0, (s, i) => s + i.total);
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Ventas', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                  Text('Ventas${isAdmin ? "" : " (mis ventas)"}',
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                   const SizedBox(height: 10),
                   Row(
                     children: [

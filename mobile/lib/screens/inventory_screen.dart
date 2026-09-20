@@ -36,7 +36,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => ProductFormScreen(profileId: widget.profileId),
+                  builder: (_) => ProductFormScreen(profileId: widget.profileId, isAdmin: true),
                 ),
               ),
             ),
@@ -250,7 +250,7 @@ class _ProductCard extends StatelessWidget {
               context,
               MaterialPageRoute(
                 builder: (_) => ProductFormScreen(
-                    profileId: profileId, product: product),
+                    profileId: profileId, product: product, isAdmin: isAdmin),
               ),
             );
           } else {

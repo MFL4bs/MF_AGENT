@@ -60,7 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
         profileId: widget.profileId,
         isAdmin: _isAdmin,
       ),
-      SalesScreen(profileId: widget.profileId),
+      SalesScreen(profileId: widget.profileId, username: widget.username, isAdmin: _isAdmin),
     ];
 
     return Scaffold(

@@ -44,6 +44,7 @@ class Invoice {
   final String profileId;
   final String notes;
   final String? pdfUrl;
+  final String registeredBy;
 
   Invoice({
     required this.invoiceId,
@@ -58,6 +59,7 @@ class Invoice {
     required this.profileId,
     this.notes = '',
     this.pdfUrl,
+    this.registeredBy = '',
   });
 
   factory Invoice.fromMap(Map<String, dynamic> m, String profileId) => Invoice(
@@ -75,6 +77,7 @@ class Invoice {
         profileId: profileId,
         notes: m['notes'] ?? '',
         pdfUrl: m['pdf_url'] as String?,
+        registeredBy: m['registered_by'] ?? '',
       );
 
   Map<String, dynamic> toMap() => {
@@ -89,5 +92,6 @@ class Invoice {
         'timestamp': timestamp,
         'profile_id': profileId,
         'notes': notes,
+        'registered_by': registeredBy,
       };
 }

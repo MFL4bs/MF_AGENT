@@ -51,7 +51,7 @@ def delete_product(profile_id: str, sku: str):
 
 
 def low_stock_products(profile_id: str, threshold: int = 15) -> list[dict]:
-    return [p for p in _load(profile_id) if 0 < int(p.get("stock", 0)) <= threshold]
+    return [p for p in _load(profile_id) if int(p.get("stock", 0)) <= threshold]
 
 
 def next_sku(profile_id: str) -> str:
